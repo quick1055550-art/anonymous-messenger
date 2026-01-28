@@ -367,6 +367,7 @@ sendBtn.onclick = () => {
 // 1) выбираем лучший mimeType (opus)
 // 2) задаём стабильный высокий битрейт
 // 3) добавляем аудио-настройки микрофона (echo/noise/gain)
+// + ✅ ПУНКТ 4: mediaRecorder.start(250) (чанки каждые 250мс, меньше багов и пустых blob)
 // ============================
 
 function pickBestAudioMimeType() {
@@ -469,8 +470,8 @@ recBtn.onclick = async () => {
 
   setRecUi(true);
 
-  // Можно сделать ещё стабильнее так: mediaRecorder.start(250);
-  mediaRecorder.start();
+  // ✅ ПУНКТ 4: делим запись на чанки каждые 250мс — меньше шанс “пустой blob/обрыв”
+  mediaRecorder.start(250);
 };
 
 stopBtn.onclick = () => {

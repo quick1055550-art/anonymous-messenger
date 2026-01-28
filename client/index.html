@@ -50,14 +50,36 @@
 
         <div id="chat" class="chat"></div>
 
-        <!-- Голосовые -->
+        <!-- Сообщения + голос -->
         <div class="row">
           <input id="msgInput" placeholder="Напиши сообщение..." />
           <button id="sendBtn">Отправить</button>
           <button id="recBtn">🎤 Запись</button>
           <button id="stopBtn" disabled>⏹ Стоп</button>
         </div>
+
         <div class="small" id="recStatus"></div>
+
+        <!-- ✅ ПУНКТ 1: Панель записи голосового (как в Telegram) -->
+        <div
+          id="voicePanel"
+          class="row"
+          style="display:none; align-items:center; gap:10px; margin-top:8px;"
+        >
+          <span id="voiceTimer">00:00</span>
+
+          <span id="voiceHint" class="small">
+            ⬅️ влево — отмена • ⬆️ вверх — замок
+          </span>
+
+          <button id="voiceCancelBtn" style="display:none;">
+            ❌ Отменить
+          </button>
+
+          <button id="voiceSendBtn" style="display:none;">
+            ✅ Отправить
+          </button>
+        </div>
       </div>
     </div>
 
