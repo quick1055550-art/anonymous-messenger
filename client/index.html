@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Anonymous Messenger</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="app">
+      <h1>Anonymous Messenger</h1>
+
+      <!-- Карточка: Ник -->
+      <div class="card">
+        <div class="label">Ваш ник</div>
+
+        <div class="row">
+          <input id="nickInput" placeholder="например: Аноним42" />
+          <button id="saveNickBtn">Сохранить</button>
+          <button id="randomNickBtn">Случайный</button>
+        </div>
+
+        <div class="small" id="nickStatus"></div>
+      </div>
+
+      <!-- Карточка: Комната -->
+      <div class="card">
+        <div class="label">Room ID (комната)</div>
+
+        <div class="row">
+          <input id="roomId" placeholder="например: test123" />
+          <button id="joinBtn">Войти</button>
+          <button id="createBtn">Создать</button>
+        </div>
+
+        <div class="small" id="invite"></div>
+        <div class="small" id="onlineList"></div>
+      </div>
+
+      <!-- Карточка: Чат -->
+      <div class="card">
+
+        <!-- ✅ ПУНКТ 1: уведомления -->
+        <div class="row">
+          <button id="soundBtn">🔊 Включить звук</button>
+          <button id="notifyBtn">🔔 Разрешить уведомления</button>
+        </div>
+
+        <div id="typingLine" class="small"></div>
+
+        <div id="chat" class="chat"></div>
+
+        <!-- Голосовые -->
+        <div class="row">
+          <input id="msgInput" placeholder="Напиши сообщение..." />
+          <button id="sendBtn">Отправить</button>
+          <button id="recBtn">🎤 Запись</button>
+          <button id="stopBtn" disabled>⏹ Стоп</button>
+        </div>
+        <div class="small" id="recStatus"></div>
+      </div>
+    </div>
+
+    <script src="./main.js" type="module"></script>
+  </body>
+</html>

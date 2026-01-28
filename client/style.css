@@ -1,0 +1,67 @@
+body {
+  font-family: system-ui, -apple-system, Arial;
+  background: #f6f7fb;
+  margin: 0;
+  padding: 24px;
+}
+
+.app {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.card {
+  background: white;
+  padding: 16px;
+  border-radius: 12px;
+  margin-top: 16px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
+}
+
+.label {
+  margin-bottom: 8px;
+  opacity: 0.7;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #ddd;
+  outline: none;
+}
+
+button {
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 0;
+  cursor: pointer;
+}
+
+.chat {
+  height: 300px;
+  overflow: auto;
+  border: 1px solid #eee;
+  border-radius: 10px;
+  padding: 10px;
+  background: #fafafa;
+}
+
+.msg {
+  padding: 8px 10px;
+  background: white;
+  border-radius: 10px;
+  margin: 6px 0;
+  border: 1px solid #eee;
+}
+
+.small {
+  font-size: 12px;
+  opacity: 0.6;
+}
