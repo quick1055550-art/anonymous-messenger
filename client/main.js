@@ -362,23 +362,80 @@ sendBtn.onclick = () => {
   msgInput.value = "";
 };
 
+// ============================
+// ✅ Улучшение качества голосовых (ПУНКТЫ 1–2–3)
+// 1) выбираем лучший mimeType (opus)
+// 2) задаём стабильный высокий битрейт
+// 3) добавляем аудио-настройки микрофона (echo/noise/gain)
+// ============================
+
+function pickBestAudioMimeType() {
+  const candidates = [
+    "audio/webm;codecs=opus", // Chrome/Edge
+    "audio/ogg;codecs=opus", // Firefox
+    "audio/webm",
+    "audio/ogg",
+  ];
+
+  for (const t of candidates) {
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t;
+  }
+  return ""; // на крайний случай: пусть браузер выберет сам
+}
+
+const VOICE_BITS_PER_SECOND = 128_000;
+
 // ===== Голосовые =====
 recBtn.onclick = async () => {
   if (!currentRoomId) return alert("Сначала войдите в комнату");
+  if (!navigator.mediaDevices?.getUserMedia) {
+    return alert("В этом браузере нет поддержки записи (getUserMedia).");
+  }
+  if (!window.MediaRecorder) {
+    return alert("В этом браузере не поддерживается MediaRecorder.");
+  }
   if (mediaRecorder && mediaRecorder.state === "recording") return;
 
+  const audioConstraints = {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+    channelCount: 1,
+    sampleRate: 48000,
+  };
+
   try {
-    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
   } catch {
     alert("Нет доступа к микрофону. Разреши микрофон в браузере.");
     return;
   }
 
   audioChunks = [];
-  mediaRecorder = new MediaRecorder(mediaStream);
+
+  const mimeType = pickBestAudioMimeType();
+  const options = {
+    ...(mimeType ? { mimeType } : {}),
+    audioBitsPerSecond: VOICE_BITS_PER_SECOND,
+  };
+
+  try {
+    mediaRecorder = new MediaRecorder(mediaStream, options);
+  } catch (e) {
+    console.warn("MediaRecorder не принял options, запускаю без них:", e);
+    mediaRecorder = new MediaRecorder(mediaStream);
+  }
 
   mediaRecorder.ondataavailable = (e) => {
     if (e.data && e.data.size > 0) audioChunks.push(e.data);
+  };
+
+  mediaRecorder.onerror = (e) => {
+    console.error("MediaRecorder error:", e);
+    setRecUi(false);
+    try {
+      mediaRecorder?.stop();
+    } catch {}
   };
 
   mediaRecorder.onstop = async () => {
@@ -387,6 +444,12 @@ recBtn.onclick = async () => {
     if (mediaStream) {
       for (const track of mediaStream.getTracks()) track.stop();
       mediaStream = null;
+    }
+
+    if (!audioChunks.length) {
+      alert("Запись получилась пустой. Попробуй ещё раз.");
+      mediaRecorder = null;
+      return;
     }
 
     const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || "audio/webm" });
@@ -405,6 +468,8 @@ recBtn.onclick = async () => {
   };
 
   setRecUi(true);
+
+  // Можно сделать ещё стабильнее так: mediaRecorder.start(250);
   mediaRecorder.start();
 };
 
@@ -433,7 +498,6 @@ socket.on("history", (data) => {
     const meta = `${who} • ${new Date(msg.time).toLocaleTimeString()}`;
 
     if (msg.type === "audio") {
-      // ✅ ПУНКТ 18: аудио через текущий домен
       const url = `/audio/${msg.audioId}`;
       addLine(`<audio controls src="${url}"></audio>`, meta);
     } else {
@@ -458,7 +522,6 @@ socket.on("new_message", (msg) => {
   }
 
   if (msg.type === "audio") {
-    // ✅ ПУНКТ 18: аудио через текущий домен
     const url = `/audio/${msg.audioId}`;
     addLine(`<audio controls src="${url}"></audio>`, meta);
     return;
