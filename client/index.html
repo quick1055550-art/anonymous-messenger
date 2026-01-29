@@ -112,6 +112,30 @@
       </div>
     </div>
 
+    <!-- First-run registration (anonymous) -->
+    <div id="regModal" class="modal" style="display:none;">
+      <div class="modalCard" style="max-width:520px;">
+        <div class="modalTitle">Создать анонимный профиль</div>
+        <div class="small" style="opacity:.9; margin-bottom:10px;">
+          Телефон и почта не нужны. Выберите аватар и ник — и можно начинать.
+        </div>
+
+        <div class="row" style="gap:10px;">
+          <button id="regAvatarBtn" class="profileAvatar" title="Выбрать аватар" aria-label="Выбрать аватар">
+            <img id="regAvatarImg" alt="avatar" />
+          </button>
+          <input id="regNickInput" placeholder="например: Аноним42" style="flex:1;" />
+        </div>
+
+        <div class="small" id="regError" style="margin-top:8px; color:#ff9090;"></div>
+
+        <div class="row" style="justify-content:flex-end; gap:8px; margin-top:12px;">
+          <button id="regRandomBtn" class="btnSmall">Случайный ник</button>
+          <button id="regContinueBtn" class="btnPrimary">Продолжить</button>
+        </div>
+      </div>
+    </div>
+
     <script src="./main.js" type="module"></script>
   </body>
 </html>
