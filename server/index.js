@@ -13,9 +13,20 @@ const { Server } = require("socket.io");
 const PORT = Number(process.env.PORT || 4000);
 
 // В проде лучше задать: FRONTEND_ORIGIN="https://malaus.online"
-const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "*";
+// В проде лучше задать: FRONTEND_ORIGIN="https://malaus.online"
+// Можно через запятую: "https://malaus.online,https://www.malaus.online"
+// Если не задано — разрешаем localhost (dev) и домен malaus.online (prod).
+const FRONTEND_ORIGIN_RAW = (process.env.FRONTEND_ORIGIN || "").trim();
+const ALLOWED_ORIGINS = FRONTEND_ORIGIN_RAW
+  ? FRONTEND_ORIGIN_RAW.split(",").map((s) => s.trim()).filter(Boolean)
+  : ["http://localhost:5173", "http://127.0.0.1:5173", "https://malaus.online", "https://www.malaus.online"];
 
-// Куда сохраняем голосовые (на диск)
+function corsOrigin(origin, cb) {
+  // запросы без Origin (например, curl) — разрешаем
+  if (!origin) return cb(null, true);
+  if (ALLOWED_ORIGINS.includes("*")) return cb(null, true);
+  return cb(null, ALLOWED_ORIGINS.includes(origin));
+}
 const AUDIO_DIR =
   process.env.AUDIO_DIR || path.join(__dirname, "data", "audio");
 
@@ -34,6 +45,7 @@ fs.mkdirSync(AUDIO_DIR, { recursive: true });
 // App / Server / Socket.IO
 // ============================
 const app = express();
+app.set("trust proxy", 1);
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true, ts: new Date().toISOString() });
@@ -41,10 +53,7 @@ app.get("/health", (_req, res) => {
 
 // CORS
 app.use(
-  cors({
-    origin: FRONTEND_ORIGIN === "*" ? true : FRONTEND_ORIGIN,
-    credentials: true,
-  })
+  cors({ origin: corsOrigin, credentials: true })
 );
 
 app.use(express.json({ limit: "1mb" }));
@@ -52,10 +61,9 @@ app.use(express.json({ limit: "1mb" }));
 const server = http.createServer(app);
 
 const io = new Server(server, {
-  cors: {
-    origin: FRONTEND_ORIGIN === "*" ? true : FRONTEND_ORIGIN,
-    credentials: true,
-  },
+  path: "/socket.io",
+  transports: ["websocket", "polling"],
+  cors: { origin: corsOrigin, credentials: true },
   pingInterval: 25_000,
   pingTimeout: 20_000,
 });

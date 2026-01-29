@@ -101,6 +101,31 @@
       </main>
     </div>
 
+
+    <!-- Onboarding / "регистрация" (показывается, если ник ещё не сохранён) -->
+    <div id="onboardingModal" class="modal" style="display:none;">
+      <div class="modalCard">
+        <div class="modalTitle">Привет! Давай настроим профиль</div>
+
+        <div class="small" style="margin: 0 4px 10px; opacity:.9;">
+          Это анонимный чат. Выбери ник и аватар — их можно изменить позже в левой панели.
+        </div>
+
+        <div class="label" style="margin-top:10px;">Ник</div>
+        <div class="row">
+          <input id="onbNickInput" placeholder="например: Смешной Лиса 655" />
+          <button id="onbRandomNickBtn" class="btnSmall">Случайный</button>
+        </div>
+
+        <div class="label" style="margin-top:12px;">Аватар</div>
+        <div id="onbAvatarGrid" class="avatarGrid"></div>
+
+        <div class="row" style="justify-content:flex-end; margin-top: 12px;">
+          <button id="onbSaveBtn" class="btnSmall btnPrimary">Готово</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Avatar picker -->
     <div id="avatarModal" class="modal" style="display:none;">
       <div class="modalCard">

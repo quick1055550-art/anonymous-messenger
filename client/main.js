@@ -12,27 +12,51 @@ import { io } from "socket.io-client";
 // ============================
 // В dev через Vite мы используем PROXY (vite.config.mjs), поэтому достаточно относительного подключения io().
 // Если хочется подключаться к другому бэкенду (например, к удалённому) — задай VITE_BACKEND_ORIGIN.
-const backendFromEnv = (import.meta?.env?.VITE_BACKEND_ORIGIN || "").trim();
+// Если хочется подключаться к другому бэкенду (например, к удалённому) — задай VITE_BACKEND_ORIGIN.
+// ВАЖНО: если ты по ошибке собрал прод с VITE_BACKEND_ORIGIN="http://localhost:4000",
+// браузер на https://... не сможет подключиться (будет "websocket error").
+// Поэтому ниже есть защита: localhost-адрес в проде игнорируем, а http -> https автоматически апгрейдим.
+function resolveBackendOrigin() {
+  const raw = (import.meta?.env?.VITE_BACKEND_ORIGIN || "").trim();
+  if (!raw) return "";
+  try {
+    const u = new URL(raw);
+    const isLocal =
+      u.hostname === "localhost" ||
+      u.hostname === "127.0.0.1" ||
+      u.hostname === "0.0.0.0";
 
-const socket = backendFromEnv
-  ? io(backendFromEnv, {
-      transports: ["websocket", "polling"],
-      timeout: 10_000,
-      reconnection: true,
-      reconnectionDelay: 500,
-      reconnectionDelayMax: 3000,
-    })
-  : io({
-      transports: ["websocket", "polling"],
-      timeout: 10_000,
-      reconnection: true,
-      reconnectionDelay: 500,
-      reconnectionDelayMax: 3000,
-    });
+    // Если сайт открыт не на localhost, но в билде задан localhost — игнорируем (иначе всё ломается на проде)
+    if (isLocal && window.location.hostname !== u.hostname) return "";
+
+    // Если сайт https, а бэкенд http — пытаемся апгрейдить до https (если домен внешний)
+    if (window.location.protocol === "https:" && u.protocol === "http:" && !isLocal) {
+      u.protocol = "https:";
+    }
+
+    return u.origin;
+  } catch {
+    return "";
+  }
+}
+
+const backendOrigin = resolveBackendOrigin();
+
+const socketOpts = {
+  path: "/socket.io",
+  transports: ["websocket", "polling"],
+  timeout: 10_000,
+  reconnection: true,
+  reconnectionDelay: 500,
+  reconnectionDelayMax: 3000,
+  withCredentials: true,
+};
+
+const socket = backendOrigin ? io(backendOrigin, socketOpts) : io(socketOpts);
 
 // База для <audio src>. В обычном режиме оставляем относительный URL ("/audio/...").
-// Если задан VITE_BACKEND_ORIGIN — используем абсолютный.
-const audioBase = backendFromEnv || "";
+// Если задан backendOrigin — используем абсолютный.
+const audioBase = backendOrigin || "";
 
 const SENDER_ID_KEY = "am_sender_id";
 const senderId = localStorage.getItem(SENDER_ID_KEY) || crypto.randomUUID();
@@ -144,6 +168,13 @@ const profileAvatarImg = document.getElementById("profileAvatarImg");
 const avatarModal = document.getElementById("avatarModal");
 const avatarGrid = document.getElementById("avatarGrid");
 const avatarCloseBtn = document.getElementById("avatarCloseBtn");
+
+// onboarding ("регистрация") UI
+const onboardingModal = document.getElementById("onboardingModal");
+const onbNickInput = document.getElementById("onbNickInput");
+const onbRandomNickBtn = document.getElementById("onbRandomNickBtn");
+const onbAvatarGrid = document.getElementById("onbAvatarGrid");
+const onbSaveBtn = document.getElementById("onbSaveBtn");
 
 // ============================
 // State
@@ -428,6 +459,89 @@ function setNick(nick) {
   localStorage.setItem("nick", nick);
   if (nickStatus) nickStatus.textContent = `Сохранено: ${nick}`;
 }
+// ============================
+// Onboarding ("окно регистрации")
+// Показываем один раз, если ник ещё не сохранён.
+// ============================
+function openOnboarding() {
+  if (!onboardingModal) return;
+  onboardingModal.style.display = "flex";
+
+  // ник по умолчанию
+  if (onbNickInput && !onbNickInput.value.trim()) {
+    onbNickInput.value = makeRandomNick();
+  }
+
+  renderOnboardingAvatars();
+
+  // фокус на поле
+  setTimeout(() => onbNickInput?.focus(), 0);
+}
+
+function closeOnboarding() {
+  if (!onboardingModal) return;
+  onboardingModal.style.display = "none";
+}
+
+function renderOnboardingAvatars() {
+  if (!onbAvatarGrid) return;
+  const current = getMyAvatarId();
+  onbAvatarGrid.innerHTML = "";
+  for (let i = 0; i < AVATAR_COUNT; i++) {
+    const btn = document.createElement("button");
+    btn.className = `avatarBtn ${i === current ? "active" : ""}`;
+    btn.type = "button";
+    btn.innerHTML = `<img src="${getAvatarUrl(i)}" alt="avatar ${i + 1}" />`;
+    btn.onclick = () => {
+      const next = setMyAvatarId(i);
+      if (profileAvatarImg) profileAvatarImg.src = getAvatarUrl(next);
+      renderOnboardingAvatars();
+      // не закрываем — пусть выберет ник и нажмёт "Готово"
+    };
+    onbAvatarGrid.appendChild(btn);
+  }
+}
+
+function initOnboarding() {
+  // клики
+  if (onboardingModal) {
+    onboardingModal.addEventListener("click", (e) => {
+      if (e.target === onboardingModal) closeOnboarding();
+    });
+  }
+
+  if (onbRandomNickBtn) {
+    onbRandomNickBtn.onclick = () => {
+      if (onbNickInput) onbNickInput.value = makeRandomNick();
+    };
+  }
+
+  if (onbSaveBtn) {
+    onbSaveBtn.onclick = () => {
+      const nick = safeText(onbNickInput?.value);
+      if (!nick) return alert("Введите ник");
+      setNick(nick);
+
+      // синхронизируем поле слева
+      if (nickInput) nickInput.value = nick;
+
+      // аватар уже сохранён в localStorage
+      const id = getMyAvatarId();
+      if (profileAvatarImg) profileAvatarImg.src = getAvatarUrl(id);
+
+      closeOnboarding();
+    };
+  }
+
+  // показать, если ника ещё нет
+  if (!getNick()) {
+    openOnboarding();
+  } else {
+    // синхронизируем ник в инпуте слева
+    if (nickInput) nickInput.value = getNick();
+  }
+}
+
 
 function setInvite(roomId) {
   const url = new URL(window.location.href);
@@ -488,9 +602,21 @@ socket.on("disconnect", (reason) => {
 
 socket.on("connect_error", (err) => {
   const now = Date.now();
-  if (now - lastConnectErrorAt < 2000) return;
+  // Не спамим чат одинаковыми ошибками
+  if (now - lastConnectErrorAt < 10_000) return;
   lastConnectErrorAt = now;
-  addLine(`❌ Ошибка Socket.IO: ${err?.message || err}`, "", "system");
+
+  const msg = err?.message || String(err);
+  addLine(`❌ Ошибка Socket.IO: ${msg}`, "", "system");
+
+  // Подсказки для новичка
+  if (/websocket error|xhr poll error|timeout/i.test(msg)) {
+    addLine(
+      `💡 Проверь: 1) сервер Node.js запущен на :4000  2) nginx проксирует /socket.io/ на 127.0.0.1:4000  3) нет других server_name malaus.online`,
+      "",
+      "system"
+    );
+  }
 });
 
 // ============================
@@ -1229,6 +1355,7 @@ function initAvatarPicker() {
 
 // init once
 initAvatarPicker();
+initOnboarding();
 
 // ============================
 // Join room (from chat list / room input)
