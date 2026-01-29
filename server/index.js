@@ -6,7 +6,6 @@ const path = require("path");
 const fs = require("fs");
 const cors = require("cors");
 const { Server } = require("socket.io");
-const { authRoutes, attachSocketAuth } = require("./lib/auth");
 
 // ============================
 // Настройки (можно переопределять через ENV)
@@ -50,9 +49,6 @@ app.use(
 
 app.use(express.json({ limit: "1mb" }));
 
-// Auth + profile (anonymous, no phone/email)
-authRoutes(app);
-
 const server = http.createServer(app);
 
 const io = new Server(server, {
@@ -63,9 +59,6 @@ const io = new Server(server, {
   pingInterval: 25_000,
   pingTimeout: 20_000,
 });
-
-// Socket auth: requires token from /api/auth/register
-attachSocketAuth(io);
 
 // ============================
 // Память: история комнат + индекс голосовых
@@ -227,10 +220,9 @@ function emitPresence(roomId) {
 io.on("connection", (socket) => {
   socket.on("join_room", (data = {}) => {
     const roomId = String(data.roomId || "").trim();
-    const user = socket.user;
-    const senderId = String(user?.id || "").trim();
-    const nick = String(user?.displayName || "Anonymous").trim();
-    const avatarId = Number(user?.avatarId);
+    const senderId = String(data.senderId || "").trim();
+    const nick = String(data.nick || "").trim();
+    const avatarId = Number(data.avatarId);
 
     if (!roomId || !senderId) return;
 
@@ -245,16 +237,14 @@ io.on("connection", (socket) => {
     socket.emit("history", { roomId, messages: history });
 
     emitPresence(roomId);
-
   });
 
   socket.on("send_message", (data = {}) => {
     const roomId = String(data.roomId || "").trim();
     const text = String(data.text || "").trim();
-    const user = socket.user;
-    const senderId = String(user?.id || "").trim();
-    const nick = String(user?.displayName || "Anonymous").trim();
-    const avatarId = Number(user?.avatarId);
+    const senderId = String(data.senderId || "").trim();
+    const nick = String(data.nick || "").trim();
+    const avatarId = Number(data.avatarId);
 
     if (!roomId || !senderId || !text) return;
 
@@ -274,10 +264,9 @@ io.on("connection", (socket) => {
 
   socket.on("send_voice", async (data = {}) => {
     const roomId = String(data.roomId || "").trim();
-    const user = socket.user;
-    const senderId = String(user?.id || "").trim();
-    const nick = String(user?.displayName || "Anonymous").trim();
-    const avatarId = Number(user?.avatarId);
+    const senderId = String(data.senderId || "").trim();
+    const nick = String(data.nick || "").trim();
+    const avatarId = Number(data.avatarId);
     const mime = String(data.mime || "audio/webm").trim();
 
     if (!roomId || !senderId) return;
@@ -324,67 +313,28 @@ io.on("connection", (socket) => {
     addToHistory(roomId, payload);
     io.to(roomId).emit("new_message", payload);
   });
-      return;
-    }
-
-    const audioId = makeId();
-    const ext = extByMime(mime);
-    const filePath = path.join(AUDIO_DIR, `${audioId}.${ext}`);
-
-    try {
-      await fs.promises.writeFile(filePath, buf);
-    } catch {
-      socket.emit("system", { text: "❌ Ошибка сохранения голосового" });
-      return;
-    }
-
-    audioIndex.set(audioId, {
-      filePath,
-      mime,
-      createdAt: Date.now(),
-      size: buf.length,
-    });
-
-    const payload = {
-      roomId,
-      type: "audio",
-      audioId,
-      mime,
-      senderId,
-      nick,
-      avatarId: Number.isFinite(avatarId) ? avatarId : undefined,
-      time: new Date().toISOString(),
-    };
-
-    addToHistory(roomId, payload);
-    io.to(roomId).emit("new_message", payload);
-  });
 
   socket.on("typing_start", (data = {}) => {
     const roomId = String(data.roomId || "").trim();
     if (!roomId) return;
-    const user = socket.user;
     socket.to(roomId).emit("typing", {
       roomId,
-      senderId: user?.id,
-      nick: user?.displayName,
-      avatarId: user?.avatarId,
+      senderId: data.senderId,
+      nick: data.nick,
+      avatarId: data.avatarId,
       isTyping: true,
     });
-  });
   });
 
   socket.on("typing_stop", (data = {}) => {
     const roomId = String(data.roomId || "").trim();
     if (!roomId) return;
-    const user = socket.user;
     socket.to(roomId).emit("typing", {
       roomId,
-      senderId: user?.id,
-      nick: user?.displayName,
+      senderId: data.senderId,
+      nick: data.nick,
       isTyping: false,
     });
-  });
   });
 
   socket.on("disconnect", () => {
