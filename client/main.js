@@ -1,5 +1,27 @@
 import { io } from "socket.io-client";
 
+
+// ============================
+// Local auth storage
+// ============================
+const SENDER_ID_KEY = "am_sender_id"; // legacy fallback
+const TOKEN_KEY = "am_token_v1";
+const PROFILE_KEY = "am_profile_v1";
+
+let authToken = localStorage.getItem(TOKEN_KEY) || "";
+let myProfile = (() => {
+  try {
+    const raw = localStorage.getItem(PROFILE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+})();
+
+// senderId is server-issued (profile.id) when available; fallback for first run.
+let senderId = myProfile?.id || localStorage.getItem(SENDER_ID_KEY) || crypto.randomUUID();
+localStorage.setItem(SENDER_ID_KEY, senderId);
+
 /**
  * main.js (clean + telegram-like voice + speed + listened)
  * - Voice (hold-to-record, swipe left cancel, swipe up lock)
@@ -16,6 +38,8 @@ const backendFromEnv = (import.meta?.env?.VITE_BACKEND_ORIGIN || "").trim();
 
 const socket = backendFromEnv
   ? io(backendFromEnv, {
+      auth: { token: authToken },
+      autoConnect: false,
       transports: ["websocket", "polling"],
       timeout: 10_000,
       reconnection: true,
@@ -23,6 +47,8 @@ const socket = backendFromEnv
       reconnectionDelayMax: 3000,
     })
   : io({
+      auth: { token: authToken },
+      autoConnect: false,
       transports: ["websocket", "polling"],
       timeout: 10_000,
       reconnection: true,
@@ -34,9 +60,79 @@ const socket = backendFromEnv
 // Если задан VITE_BACKEND_ORIGIN — используем абсолютный.
 const audioBase = backendFromEnv || "";
 
-const SENDER_ID_KEY = "am_sender_id";
-const senderId = localStorage.getItem(SENDER_ID_KEY) || crypto.randomUUID();
-localStorage.setItem(SENDER_ID_KEY, senderId);
+// ============================
+// Auth/Profile (anonymous, token-based)
+// ============================
+async function apiJson(path, { method = "GET", body } = {}) {
+  const headers = { "Content-Type": "application/json" };
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+  const res = await fetch(path, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  let data = null;
+  try { data = await res.json(); } catch { data = null; }
+  return { ok: res.ok, status: res.status, data };
+}
+
+function saveAuth(nextToken, profile) {
+  authToken = nextToken || authToken;
+  if (authToken) localStorage.setItem(TOKEN_KEY, authToken);
+  if (profile) {
+    myProfile = profile;
+    localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+    senderId = profile.id;
+    localStorage.setItem(SENDER_ID_KEY, senderId);
+  }
+  // Update socket auth and reconnect if needed
+  socket.auth = { token: authToken };
+  if (!socket.connected) {
+    try { socket.connect(); } catch {}
+  } else {
+    // force re-auth on next reconnect
+  }
+}
+
+async function ensureRegistered(displayName, avatarId) {
+  // If we already have token + profile, best-effort refresh.
+  if (authToken) {
+    const me = await apiJson("/api/me");
+    if (me.ok && me.data?.profile) {
+      saveAuth(authToken, me.data.profile);
+      return true;
+    }
+    // token invalid -> drop
+    authToken = "";
+    myProfile = null;
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(PROFILE_KEY);
+  }
+
+  const reg = await apiJson("/api/auth/register", {
+    method: "POST",
+    body: { displayName, avatarId },
+  });
+
+  if (reg.ok && reg.data?.token && reg.data?.profile) {
+    saveAuth(reg.data.token, reg.data.profile);
+    return true;
+  }
+
+  return false;
+}
+
+async function syncProfilePatch(patch) {
+  if (!authToken) return false;
+  const r = await apiJson("/api/me", { method: "PATCH", body: patch });
+  if (r.ok && r.data?.profile) {
+    saveAuth(authToken, r.data.profile);
+    return true;
+  }
+  return false;
+}
+
+
 
 // ============================
 // Avatar (10 минималистичных дефолтных)
@@ -69,6 +165,19 @@ function setMyAvatarId(id) {
   const n = Number(id);
   const safe = Number.isFinite(n) ? Math.max(0, Math.min(AVATAR_COUNT - 1, n)) : 0;
   localStorage.setItem(AVATAR_KEY, String(safe));
+
+  // Sync avatar to profile (best-effort)
+  (async () => {
+    try {
+      const nick = getNick() || "Anonymous";
+      if (!authToken) {
+        await ensureRegistered(nick, safe);
+      } else {
+        await syncProfilePatch({ avatarId: safe });
+      }
+    } catch {}
+  })();
+
   return safe;
 }
 
@@ -427,6 +536,19 @@ function getNick() {
 function setNick(nick) {
   localStorage.setItem("nick", nick);
   if (nickStatus) nickStatus.textContent = `Сохранено: ${nick}`;
+
+  // If not registered yet, register on first save.
+  // If registered, update profile displayName.
+  (async () => {
+    try {
+      const avatarId = getMyAvatarId();
+      if (!authToken) {
+        await ensureRegistered(nick, avatarId);
+      } else {
+        await syncProfilePatch({ displayName: nick, avatarId });
+      }
+    } catch {}
+  })();
 }
 
 function setInvite(roomId) {
@@ -1164,6 +1286,20 @@ if (savedNick) {
   if (nickInput) nickInput.value = rnd;
   setNick(rnd);
 }
+
+
+// Try to ensure account exists (creates token on first run)
+;(async () => {
+  try {
+    const nick = getNick() || "Anonymous";
+    const avatarId = getMyAvatarId();
+    if (!authToken) await ensureRegistered(nick, avatarId);
+    else {
+      const me = await apiJson("/api/me");
+      if (me.ok && me.data?.profile) saveAuth(authToken, me.data.profile);
+    }
+  } catch {}
+})();
 
 if (saveNickBtn) {
   saveNickBtn.onclick = () => {
