@@ -92,14 +92,6 @@ function saveAuth(nextToken, profile) {
   } else {
     // force re-auth on next reconnect
   }
-
-  // If we just got a valid token/profile on first-run — hide registration modal
-  try {
-    if (authToken) {
-      closeRegModal();
-      updateAllAvatarPreviews();
-    }
-  } catch {}
 }
 
 async function ensureRegistered(displayName, avatarId) {
@@ -261,15 +253,6 @@ const profileAvatarImg = document.getElementById("profileAvatarImg");
 const avatarModal = document.getElementById("avatarModal");
 const avatarGrid = document.getElementById("avatarGrid");
 const avatarCloseBtn = document.getElementById("avatarCloseBtn");
-
-// First-run registration modal
-const regModal = document.getElementById("regModal");
-const regAvatarBtn = document.getElementById("regAvatarBtn");
-const regAvatarImg = document.getElementById("regAvatarImg");
-const regNickInput = document.getElementById("regNickInput");
-const regRandomBtn = document.getElementById("regRandomBtn");
-const regContinueBtn = document.getElementById("regContinueBtn");
-const regError = document.getElementById("regError");
 
 // ============================
 // State
@@ -1301,25 +1284,21 @@ if (savedNick) {
 } else {
   const rnd = makeRandomNick();
   if (nickInput) nickInput.value = rnd;
-  // На первом запуске не регистрируем молча — покажем окно регистрации.
-  localStorage.setItem("nick", rnd);
-  if (nickStatus) nickStatus.textContent = `Текущий ник: ${rnd}`;
+  setNick(rnd);
 }
 
 
-// If we already have a token — refresh profile.
-// If not — show the registration modal (newbie-friendly).
+// Try to ensure account exists (creates token on first run)
 ;(async () => {
   try {
-    if (authToken) {
+    const nick = getNick() || "Anonymous";
+    const avatarId = getMyAvatarId();
+    if (!authToken) await ensureRegistered(nick, avatarId);
+    else {
       const me = await apiJson("/api/me");
       if (me.ok && me.data?.profile) saveAuth(authToken, me.data.profile);
-    } else {
-      openRegModal();
     }
-  } catch {
-    if (!authToken) openRegModal("Не могу связаться с /api. Проверь nginx и бэкенд.");
-  }
+  } catch {}
 })();
 
 if (saveNickBtn) {
@@ -1342,31 +1321,6 @@ if (randomNickBtn) {
 // ============================
 // Avatar UI
 // ============================
-function openRegModal(message) {
-  if (!regModal) return;
-  regModal.style.display = "flex";
-  if (regError) regError.textContent = message ? String(message) : "";
-
-  // Prefill
-  const nick = getNick() || makeRandomNick();
-  if (regNickInput) regNickInput.value = nick;
-  const avatarId = getMyAvatarId();
-  if (regAvatarImg) regAvatarImg.src = getAvatarUrl(avatarId);
-}
-
-function closeRegModal() {
-  if (!regModal) return;
-  regModal.style.display = "none";
-  if (regError) regError.textContent = "";
-}
-
-function updateAllAvatarPreviews() {
-  const id = getMyAvatarId();
-  const src = getAvatarUrl(id);
-  if (profileAvatarImg) profileAvatarImg.src = src;
-  if (regAvatarImg) regAvatarImg.src = src;
-}
-
 function openAvatarModal() {
   if (!avatarModal) return;
   avatarModal.style.display = "flex";
@@ -1388,7 +1342,7 @@ function renderAvatarGrid() {
     btn.innerHTML = `<img src="${getAvatarUrl(i)}" alt="avatar ${i+1}" />`;
     btn.onclick = () => {
       const next = setMyAvatarId(i);
-      updateAllAvatarPreviews();
+      if (profileAvatarImg) profileAvatarImg.src = getAvatarUrl(next);
       renderAvatarGrid();
       closeAvatarModal();
     };
@@ -1397,7 +1351,8 @@ function renderAvatarGrid() {
 }
 
 function initAvatarPicker() {
-  updateAllAvatarPreviews();
+  const id = getMyAvatarId();
+  if (profileAvatarImg) profileAvatarImg.src = getAvatarUrl(id);
 
   if (profileAvatarBtn) profileAvatarBtn.onclick = () => openAvatarModal();
   if (avatarCloseBtn) avatarCloseBtn.onclick = () => closeAvatarModal();
@@ -1410,52 +1365,6 @@ function initAvatarPicker() {
 
 // init once
 initAvatarPicker();
-
-// Registration modal handlers
-if (regAvatarBtn) regAvatarBtn.onclick = () => openAvatarModal();
-if (regRandomBtn) {
-  regRandomBtn.onclick = () => {
-    const rnd = makeRandomNick();
-    if (regNickInput) regNickInput.value = rnd;
-  };
-}
-if (regContinueBtn) {
-  regContinueBtn.onclick = async () => {
-    const nick = safeText(regNickInput?.value) || makeRandomNick();
-    const avatarId = getMyAvatarId();
-
-    // store nick locally (sidebar uses it)
-    localStorage.setItem("nick", nick);
-    if (nickInput) nickInput.value = nick;
-    if (nickStatus) nickStatus.textContent = `Текущий ник: ${nick}`;
-
-    if (regError) regError.textContent = "";
-    if (regContinueBtn) regContinueBtn.disabled = true;
-    try {
-      const ok = await ensureRegistered(nick, avatarId);
-      if (ok) {
-        closeRegModal();
-        updateAllAvatarPreviews();
-        // If URL has ?room=... try to join after auth
-        autoJoinFromUrl();
-      } else {
-        openRegModal("Не удалось создать профиль. Проверь /api на сервере и попробуй ещё раз.");
-      }
-    } catch {
-      openRegModal("Ошибка регистрации. Проверь /api на сервере и попробуй ещё раз.");
-    } finally {
-      if (regContinueBtn) regContinueBtn.disabled = false;
-    }
-  };
-}
-
-if (regModal) {
-  regModal.addEventListener("click", (e) => {
-    if (e.target === regModal) {
-      // не закрываем клик... чтобы новичок не потерялся: оставим модалку
-    }
-  });
-}
 
 // ============================
 // Join room (from chat list / room input)
@@ -1499,11 +1408,7 @@ function joinRoom(roomId) {
 }
 
 if (joinBtn) {
-  joinBtn.onclick = async () => {
-    if (!authToken) {
-      openRegModal("Сначала создай анонимный профиль (ник + аватар).");
-      return;
-    }
+  joinBtn.onclick = () => {
     const roomId = safeText(roomIdEl?.value);
     if (!roomId) return alert("Введите Room ID");
     ensureChat(roomId, "joined");
@@ -1517,7 +1422,6 @@ if (joinBtn) {
 // ============================
 if (msgInput) {
   msgInput.addEventListener("input", () => {
-    if (!authToken) return;
     if (!currentRoomId) return;
 
     const text = safeText(msgInput.value);
@@ -1548,10 +1452,6 @@ if (msgInput) {
 // ============================
 if (sendBtn) {
   sendBtn.onclick = () => {
-    if (!authToken) {
-      openRegModal("Сначала создай анонимный профиль (ник + аватар).");
-      return;
-    }
     const text = safeText(msgInput?.value);
     if (!text) return;
     if (!currentRoomId) return alert("Сначала войдите в комнату");
