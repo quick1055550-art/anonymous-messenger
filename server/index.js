@@ -222,13 +222,14 @@ io.on("connection", (socket) => {
     const roomId = String(data.roomId || "").trim();
     const senderId = String(data.senderId || "").trim();
     const nick = String(data.nick || "").trim();
+    const avatarId = Number(data.avatarId);
 
     if (!roomId || !senderId) return;
 
     socket.join(roomId);
 
     if (!roomUsers.has(roomId)) roomUsers.set(roomId, new Map());
-    roomUsers.get(roomId).set(socket.id, { senderId, nick });
+    roomUsers.get(roomId).set(socket.id, { senderId, nick, avatarId: Number.isFinite(avatarId) ? avatarId : undefined });
 
     socket.emit("system", { text: `Вы подключились к комнате ${roomId}` });
 
@@ -243,6 +244,7 @@ io.on("connection", (socket) => {
     const text = String(data.text || "").trim();
     const senderId = String(data.senderId || "").trim();
     const nick = String(data.nick || "").trim();
+    const avatarId = Number(data.avatarId);
 
     if (!roomId || !senderId || !text) return;
 
@@ -252,6 +254,7 @@ io.on("connection", (socket) => {
       text,
       senderId,
       nick,
+      avatarId: Number.isFinite(avatarId) ? avatarId : undefined,
       time: new Date().toISOString(),
     };
 
@@ -263,6 +266,7 @@ io.on("connection", (socket) => {
     const roomId = String(data.roomId || "").trim();
     const senderId = String(data.senderId || "").trim();
     const nick = String(data.nick || "").trim();
+    const avatarId = Number(data.avatarId);
     const mime = String(data.mime || "audio/webm").trim();
 
     if (!roomId || !senderId) return;
@@ -302,6 +306,7 @@ io.on("connection", (socket) => {
       mime,
       senderId,
       nick,
+      avatarId: Number.isFinite(avatarId) ? avatarId : undefined,
       time: new Date().toISOString(),
     };
 
@@ -316,6 +321,7 @@ io.on("connection", (socket) => {
       roomId,
       senderId: data.senderId,
       nick: data.nick,
+      avatarId: data.avatarId,
       isTyping: true,
     });
   });

@@ -22,6 +22,9 @@
         <div class="sbCard">
           <div class="label">Ваш ник</div>
           <div class="row">
+            <button id="profileAvatarBtn" class="profileAvatar" title="Сменить аватар" aria-label="Сменить аватар">
+              <img id="profileAvatarImg" alt="avatar" />
+            </button>
             <input id="nickInput" placeholder="например: Аноним42" />
             <button id="saveNickBtn" class="btnSmall">Сохранить</button>
             <button id="randomNickBtn" class="btnSmall">Случайный</button>
@@ -96,6 +99,17 @@
           <button id="voiceSendBtn" class="btnSmall btnPrimary" style="display:none;">✅ Отправить</button>
         </div>
       </main>
+    </div>
+
+    <!-- Avatar picker -->
+    <div id="avatarModal" class="modal" style="display:none;">
+      <div class="modalCard">
+        <div class="modalTitle">Выберите аватар</div>
+        <div id="avatarGrid" class="avatarGrid"></div>
+        <div class="row" style="justify-content:flex-end; margin-top: 10px;">
+          <button id="avatarCloseBtn" class="btnSmall">Закрыть</button>
+        </div>
+      </div>
     </div>
 
     <script src="./main.js" type="module"></script>

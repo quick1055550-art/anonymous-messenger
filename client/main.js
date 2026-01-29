@@ -38,6 +38,40 @@ const SENDER_ID_KEY = "am_sender_id";
 const senderId = localStorage.getItem(SENDER_ID_KEY) || crypto.randomUUID();
 localStorage.setItem(SENDER_ID_KEY, senderId);
 
+// ============================
+// Avatar (10 минималистичных дефолтных)
+// ============================
+const AVATAR_KEY = "am_avatar_id_v1";
+const AVATAR_COUNT = 10;
+
+function getAvatarBaseUrl() {
+  // Vite base is "./" in this project, BASE_URL respects it.
+  const b = (import.meta?.env?.BASE_URL || "/").toString();
+  return b.endsWith("/") ? b : b + "/";
+}
+
+function getAvatarUrl(id) {
+  const n = Number(id);
+  const safe = Number.isFinite(n) ? Math.max(0, Math.min(AVATAR_COUNT - 1, n)) : 0;
+  return `${getAvatarBaseUrl()}avatars/a${safe}.svg`;
+}
+
+function getMyAvatarId() {
+  const raw = localStorage.getItem(AVATAR_KEY);
+  const n = Number(raw);
+  if (Number.isFinite(n) && n >= 0 && n < AVATAR_COUNT) return n;
+  const rnd = Math.floor(Math.random() * AVATAR_COUNT);
+  localStorage.setItem(AVATAR_KEY, String(rnd));
+  return rnd;
+}
+
+function setMyAvatarId(id) {
+  const n = Number(id);
+  const safe = Number.isFinite(n) ? Math.max(0, Math.min(AVATAR_COUNT - 1, n)) : 0;
+  localStorage.setItem(AVATAR_KEY, String(safe));
+  return safe;
+}
+
 // Очередь отправки: если сокет временно отвалился — сохраняем события и отправляем после reconnect.
 const pendingEmits = [];
 let pendingJoin = null;
@@ -103,6 +137,13 @@ const joinedListEl = document.getElementById("joinedList");
 const activeChatTitleEl = document.getElementById("activeChatTitle");
 const activeChatMetaEl = document.getElementById("activeChatMeta");
 const copyInviteBtn = document.getElementById("copyInviteBtn");
+
+// avatar UI
+const profileAvatarBtn = document.getElementById("profileAvatarBtn");
+const profileAvatarImg = document.getElementById("profileAvatarImg");
+const avatarModal = document.getElementById("avatarModal");
+const avatarGrid = document.getElementById("avatarGrid");
+const avatarCloseBtn = document.getElementById("avatarCloseBtn");
 
 // ============================
 // State
@@ -356,6 +397,18 @@ function escapeHtml(str) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+
+function renderMeta({ who, avatarId, timeText }) {
+  const name = escapeHtml(who || "");
+  const time = escapeHtml(timeText || "");
+  const n = Number(avatarId);
+  if (Number.isFinite(n) && n >= 0 && n < AVATAR_COUNT) {
+    const src = getAvatarUrl(n);
+    return `<span class="metaRow"><img class="metaAvatarImg" src="${src}" alt=""/><span>${name}</span> • ${time}</span>`;
+  }
+  return `${name} • ${time}`;
 }
 
 function makeRandomNick() {
@@ -799,6 +852,7 @@ async function sendVoiceBlob(blob, mime, durationSec) {
       roomId: currentRoomId,
       senderId,
       nick: getNick(),
+      avatarId: getMyAvatarId(),
       mime: mime || "audio/webm",
       durationSec, // опционально (сервер может игнорировать)
       audio: arrayBuffer,
@@ -1127,6 +1181,55 @@ if (randomNickBtn) {
   };
 }
 
+
+// ============================
+// Avatar UI
+// ============================
+function openAvatarModal() {
+  if (!avatarModal) return;
+  avatarModal.style.display = "flex";
+  renderAvatarGrid();
+}
+function closeAvatarModal() {
+  if (!avatarModal) return;
+  avatarModal.style.display = "none";
+}
+
+function renderAvatarGrid() {
+  if (!avatarGrid) return;
+  const current = getMyAvatarId();
+  avatarGrid.innerHTML = "";
+  for (let i = 0; i < AVATAR_COUNT; i++) {
+    const btn = document.createElement("button");
+    btn.className = `avatarBtn ${i === current ? "active" : ""}`;
+    btn.type = "button";
+    btn.innerHTML = `<img src="${getAvatarUrl(i)}" alt="avatar ${i+1}" />`;
+    btn.onclick = () => {
+      const next = setMyAvatarId(i);
+      if (profileAvatarImg) profileAvatarImg.src = getAvatarUrl(next);
+      renderAvatarGrid();
+      closeAvatarModal();
+    };
+    avatarGrid.appendChild(btn);
+  }
+}
+
+function initAvatarPicker() {
+  const id = getMyAvatarId();
+  if (profileAvatarImg) profileAvatarImg.src = getAvatarUrl(id);
+
+  if (profileAvatarBtn) profileAvatarBtn.onclick = () => openAvatarModal();
+  if (avatarCloseBtn) avatarCloseBtn.onclick = () => closeAvatarModal();
+  if (avatarModal) {
+    avatarModal.addEventListener("click", (e) => {
+      if (e.target === avatarModal) closeAvatarModal();
+    });
+  }
+}
+
+// init once
+initAvatarPicker();
+
 // ============================
 // Join room (from chat list / room input)
 // ============================
@@ -1150,7 +1253,7 @@ function joinRoom(roomId) {
   updateActiveHeader();
   renderChatLists();
 
-  const payload = { roomId: rid, senderId, nick: getNick() };
+  const payload = { roomId: rid, senderId, nick: getNick(), avatarId: getMyAvatarId() };
 
   if (socket.connected) {
     socket.emit("join_room", payload);
@@ -1196,7 +1299,7 @@ if (msgInput) {
     }
 
     if (!iAmTyping) {
-      socket.emit("typing_start", { roomId: currentRoomId, senderId, nick: getNick() });
+      socket.emit("typing_start", { roomId: currentRoomId, senderId, nick: getNick(), avatarId: getMyAvatarId() });
       iAmTyping = true;
     }
 
@@ -1225,7 +1328,7 @@ if (sendBtn) {
 
     emitOrQueue(
       "send_message",
-      { roomId: currentRoomId, text, senderId, nick: getNick() },
+      { roomId: currentRoomId, text, senderId, nick: getNick(), avatarId: getMyAvatarId() },
       "Сообщение не отправлено."
     );
 
@@ -1263,7 +1366,7 @@ socket.on("history", (data) => {
   for (const msg of data.messages || []) {
     const isMe = msg.senderId === senderId;
     const who = isMe ? "Вы" : (msg.nick || String(msg.senderId || "").slice(0, 6));
-    const meta = `${who} • ${new Date(msg.time || nowIso()).toLocaleTimeString()}`;
+    const meta = renderMeta({ who, avatarId: msg.avatarId, timeText: new Date(msg.time || nowIso()).toLocaleTimeString() });
     const variant = isMe ? "me" : "other";
 
     if (msg.type === "audio") {
@@ -1288,7 +1391,7 @@ socket.on("new_message", (msg) => {
 
   const isMe = msg.senderId === senderId;
   const who = isMe ? "Вы" : (msg.nick || String(msg.senderId || "").slice(0, 6));
-  const meta = `${who} • ${new Date(msg.time || nowIso()).toLocaleTimeString()}`;
+  const meta = renderMeta({ who, avatarId: msg.avatarId, timeText: new Date(msg.time || nowIso()).toLocaleTimeString() });
   const variant = isMe ? "me" : "other";
 
   const isActiveRoom = rid && rid === currentRoomId;
