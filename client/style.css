@@ -22,7 +22,7 @@ body{
               radial-gradient(900px 900px at 50% 90%, #0b0c10 0%, transparent 60%),
               linear-gradient(180deg, var(--bg0), var(--bg1));
   overflow-x:hidden;
-  padding: 28px 18px 40px;
+  padding: 0;
 }
 
 /* Перелив/шимер поверх */
@@ -61,30 +61,109 @@ body::after{
   body::before{ animation:none; }
 }
 
-/* Контейнер */
-.app{
-  max-width: 880px;
+/* ============================
+   Layout
+   ============================ */
+.layout{
+  height: 100vh;
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 16px;
+  padding: 18px;
+  max-width: 1200px;
   margin: 0 auto;
 }
 
-/* Заголовок */
-h1{
-  margin: 0 0 14px;
-  font-weight: 750;
-  letter-spacing: .3px;
-  font-size: clamp(26px, 3vw, 34px);
-  text-shadow: 0 10px 40px rgba(0,0,0,.6);
+@media (max-width: 920px){
+  .layout{
+    grid-template-columns: 1fr;
+    height: auto;
+    padding: 14px;
+  }
 }
 
-/* Карточки */
-.card{
-  margin-top: 16px;
-  padding: 16px;
+.sidebar{
   border-radius: var(--radius);
   background: linear-gradient(180deg, var(--card), rgba(255,255,255,.04));
   border: 1px solid var(--stroke);
   box-shadow: var(--shadow);
   backdrop-filter: blur(12px);
+  overflow: hidden;
+  display:flex;
+  flex-direction: column;
+}
+
+.main{
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, var(--card), rgba(255,255,255,.04));
+  border: 1px solid var(--stroke);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(12px);
+  overflow: hidden;
+  display:flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Brand */
+.sbTop{
+  padding: 16px 16px 10px;
+  border-bottom: 1px solid rgba(255,255,255,.10);
+}
+
+.brandTitle{
+  font-weight: 780;
+  letter-spacing: .2px;
+  font-size: 18px;
+}
+
+.brandSub{
+  margin-top: 4px;
+  opacity: .7;
+  font-size: 12px;
+}
+
+/* Sidebar cards */
+.sbCard{
+  margin: 12px 12px 0;
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(0,0,0,.20);
+  border: 1px solid rgba(255,255,255,.10);
+}
+
+.sbTools{
+  display:flex;
+  gap: 10px;
+  padding: 12px;
+  padding-top: 14px;
+}
+
+.sbSearch{
+  flex: 1;
+}
+
+.sbSelect{
+  width: 180px;
+  padding: 12px 12px;
+  border-radius: 14px;
+  background: rgba(0,0,0,.35);
+  border: 1px solid rgba(255,255,255,.14);
+  color: var(--text);
+  outline:none;
+}
+
+.sbSectionTitle{
+  padding: 10px 12px 6px;
+  opacity: .75;
+  font-size: 12px;
+  letter-spacing: .2px;
+}
+
+.chatList{
+  padding: 0 8px 12px;
+  overflow:auto;
+  min-height: 80px;
 }
 
 .label{
@@ -142,6 +221,15 @@ button{
   user-select:none;
 }
 
+.btnPrimary{
+  background: rgba(255,255,255,.14);
+  border-color: rgba(255,255,255,.22);
+}
+
+.btnSmall{
+  padding: 10px 12px;
+}
+
 button:hover{
   background: rgba(255,255,255,.12);
   border-color: rgba(255,255,255,.28);
@@ -157,8 +245,9 @@ button:disabled{
 
 /* Чат */
 .chat{
-  margin-top: 12px;
-  height: 360px;
+  margin: 0;
+  flex: 1;
+  min-height: 0;
   overflow:auto;
   padding: 14px;
   border-radius: 16px;
@@ -167,6 +256,127 @@ button:disabled{
   display:flex;
   flex-direction: column;
   gap: 10px;
+}
+
+/* Topbar */
+.topbar{
+  display:flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255,255,255,.10);
+}
+
+.activeTitle{
+  font-weight: 750;
+  letter-spacing: .2px;
+}
+
+.activeMeta{
+  margin-top: 4px;
+  font-size: 12px;
+  opacity: .7;
+}
+
+.statusRow{
+  display:flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+
+.composer{
+  display:flex;
+  gap: 10px;
+  align-items:center;
+  padding: 12px 14px;
+  border-top: 1px solid rgba(255,255,255,.10);
+}
+
+.composer input{
+  min-width: 0;
+}
+
+.voicePanel{
+  display:flex;
+  gap: 10px;
+  align-items:center;
+  padding: 10px 14px;
+  border-top: 1px solid rgba(255,255,255,.08);
+  background: rgba(0,0,0,.18);
+}
+
+/* Chat item */
+.chatItem{
+  display:flex;
+  gap: 10px;
+  align-items:center;
+  padding: 10px 10px;
+  border-radius: 14px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  user-select:none;
+}
+
+.chatItem:hover{
+  background: rgba(255,255,255,.06);
+  border-color: rgba(255,255,255,.10);
+}
+
+.chatItem.active{
+  background: rgba(255,255,255,.10);
+  border-color: rgba(255,255,255,.18);
+}
+
+.chatAvatar{
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  background: rgba(255,255,255,.10);
+  border: 1px solid rgba(255,255,255,.14);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-weight: 750;
+}
+
+.chatText{
+  flex: 1;
+  min-width: 0;
+}
+
+.chatTitle{
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chatPreview{
+  font-size: 12px;
+  opacity: .68;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 3px;
+}
+
+.chatMeta{
+  display:flex;
+  flex-direction: column;
+  align-items:flex-end;
+  gap: 6px;
+}
+
+.badge{
+  min-width: 18px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.14);
+  border: 1px solid rgba(255,255,255,.18);
+  font-size: 12px;
 }
 
 /* Сообщение */
@@ -203,4 +413,38 @@ button:disabled{
 audio{
   width: 100%;
   filter: grayscale(1) contrast(1.1);
+}
+/* ============================
+   Voice message UI (Telegram-like)
+   ============================ */
+.audioWrap{
+  display:flex;
+  gap:10px;
+  align-items:center;
+}
+
+.audioWrap audio.voice{
+  width: 260px;
+  max-width: 100%;
+}
+
+.audioWrap .dot{
+  font-size:14px;
+  line-height:1;
+  opacity:.9;
+}
+
+.audioWrap.unheard .dot{
+  opacity:1;
+}
+
+.speedBtn{
+  padding: 6px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.speedBtn:hover{
+  background: rgba(255,255,255,.12);
+  border-color: rgba(255,255,255,.28);
 }

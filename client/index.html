@@ -7,80 +7,95 @@
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <div class="app">
-      <h1>Anonymous Messenger</h1>
-
-      <!-- Карточка: Ник -->
-      <div class="card">
-        <div class="label">Ваш ник</div>
-
-        <div class="row">
-          <input id="nickInput" placeholder="например: Аноним42" />
-          <button id="saveNickBtn">Сохранить</button>
-          <button id="randomNickBtn">Случайный</button>
+    <div class="layout">
+      <!-- ============================
+           Sidebar (Chats)
+           ============================ -->
+      <aside class="sidebar">
+        <div class="sbTop">
+          <div class="brand">
+            <div class="brandTitle">Anonymous Messenger</div>
+            <div class="brandSub">Голосовые как в Telegram</div>
+          </div>
         </div>
 
-        <div class="small" id="nickStatus"></div>
-      </div>
-
-      <!-- Карточка: Комната -->
-      <div class="card">
-        <div class="label">Room ID (комната)</div>
-
-        <div class="row">
-          <input id="roomId" placeholder="например: test123" />
-          <button id="joinBtn">Войти</button>
-          <button id="createBtn">Создать</button>
+        <div class="sbCard">
+          <div class="label">Ваш ник</div>
+          <div class="row">
+            <input id="nickInput" placeholder="например: Аноним42" />
+            <button id="saveNickBtn" class="btnSmall">Сохранить</button>
+            <button id="randomNickBtn" class="btnSmall">Случайный</button>
+          </div>
+          <div class="small" id="nickStatus"></div>
         </div>
 
-        <div class="small" id="invite"></div>
-        <div class="small" id="onlineList"></div>
-      </div>
-
-      <!-- Карточка: Чат -->
-      <div class="card">
-
-        <!-- ✅ ПУНКТ 1: уведомления -->
-        <div class="row">
-          <button id="soundBtn">🔊 Включить звук</button>
-          <button id="notifyBtn">🔔 Разрешить уведомления</button>
+        <div class="sbCard">
+          <div class="label">Комнаты</div>
+          <div class="row">
+            <input id="roomId" placeholder="Room ID (вставь код или создай)" />
+            <button id="joinBtn" class="btnPrimary">Войти</button>
+            <button id="createBtn">Новый</button>
+          </div>
+          <div class="small" id="invite"></div>
         </div>
 
-        <div id="typingLine" class="small"></div>
+        <div class="sbTools">
+          <input id="chatSearch" class="sbSearch" placeholder="Поиск чатов…" />
+          <select id="chatSort" class="sbSelect">
+            <option value="recent">Сортировка: по активности</option>
+            <option value="created">Сортировка: по дате создания</option>
+            <option value="name">Сортировка: по имени</option>
+          </select>
+        </div>
+
+        <div class="sbSectionTitle">Мои чаты</div>
+        <div id="chatList" class="chatList"></div>
+
+        <div class="sbSectionTitle">Присоединённые</div>
+        <div id="joinedList" class="chatList"></div>
+      </aside>
+
+      <!-- ============================
+           Main (Chat)
+           ============================ -->
+      <main class="main">
+        <header class="topbar">
+          <div class="active">
+            <div id="activeChatTitle" class="activeTitle">Выберите чат</div>
+            <div id="activeChatMeta" class="activeMeta"></div>
+          </div>
+
+          <div class="topActions">
+            <button id="copyInviteBtn" class="btnSmall">🔗 Скопировать</button>
+            <button id="soundBtn" class="btnSmall">🔊 Звук</button>
+            <button id="notifyBtn" class="btnSmall">🔔 Уведомления</button>
+          </div>
+        </header>
+
+        <div class="statusRow">
+          <div id="typingLine" class="small"></div>
+          <div id="onlineList" class="small" style="text-align:right;"></div>
+        </div>
 
         <div id="chat" class="chat"></div>
 
-        <!-- Сообщения + голос -->
-        <div class="row">
-          <input id="msgInput" placeholder="Напиши сообщение..." />
-          <button id="sendBtn">Отправить</button>
-          <button id="recBtn">🎤 Запись</button>
-          <button id="stopBtn" disabled>⏹ Стоп</button>
+        <div class="composer">
+          <input id="msgInput" placeholder="Напиши сообщение…" />
+          <button id="sendBtn" class="btnPrimary">Отправить</button>
+          <button id="recBtn">🎤</button>
+          <button id="stopBtn" disabled>⏹</button>
         </div>
 
         <div class="small" id="recStatus"></div>
 
-        <!-- ✅ ПУНКТ 1: Панель записи голосового (как в Telegram) -->
-        <div
-          id="voicePanel"
-          class="row"
-          style="display:none; align-items:center; gap:10px; margin-top:8px;"
-        >
+        <!-- Панель записи голосового (как в Telegram) -->
+        <div id="voicePanel" class="voicePanel" style="display:none;">
           <span id="voiceTimer">00:00</span>
-
-          <span id="voiceHint" class="small">
-            ⬅️ влево — отмена • ⬆️ вверх — замок
-          </span>
-
-          <button id="voiceCancelBtn" style="display:none;">
-            ❌ Отменить
-          </button>
-
-          <button id="voiceSendBtn" style="display:none;">
-            ✅ Отправить
-          </button>
+          <span id="voiceHint" class="small">⬅️ влево — отмена • ⬆️ вверх — замок</span>
+          <button id="voiceCancelBtn" class="btnSmall" style="display:none;">❌ Отменить</button>
+          <button id="voiceSendBtn" class="btnSmall btnPrimary" style="display:none;">✅ Отправить</button>
         </div>
-      </div>
+      </main>
     </div>
 
     <script src="./main.js" type="module"></script>

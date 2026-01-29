@@ -1,3 +1,5 @@
+"use strict";
+
 const express = require("express");
 const http = require("http");
 const path = require("path");
@@ -13,14 +15,14 @@ const PORT = Number(process.env.PORT || 4000);
 // В проде лучше задать: FRONTEND_ORIGIN="https://malaus.online"
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "*";
 
-// Куда сохраняем голосовые (на диск) — намного надёжнее, чем в RAM
+// Куда сохраняем голосовые (на диск)
 const AUDIO_DIR =
   process.env.AUDIO_DIR || path.join(__dirname, "data", "audio");
 
 // Сколько хранить голосовые (по умолчанию 6 часов)
 const AUDIO_TTL_MS = Number(process.env.AUDIO_TTL_MS || 6 * 60 * 60 * 1000);
 
-// Лимит размера одного голосового (по умолчанию ~3MB, хватает на ~3 минуты при 128kbps)
+// Лимит размера одного голосового (по умолчанию ~3MB)
 const MAX_AUDIO_BYTES = Number(process.env.MAX_AUDIO_BYTES || 3_000_000);
 
 // Сколько сообщений храним в истории комнаты
@@ -33,12 +35,11 @@ fs.mkdirSync(AUDIO_DIR, { recursive: true });
 // ============================
 const app = express();
 
-// Для здоровья (удобно проверять)
 app.get("/health", (_req, res) => {
   res.json({ ok: true, ts: new Date().toISOString() });
 });
 
-// CORS — для Socket.IO тоже (на Nginx мы всё равно сидим на одном домене)
+// CORS
 app.use(
   cors({
     origin: FRONTEND_ORIGIN === "*" ? true : FRONTEND_ORIGIN,
@@ -46,7 +47,7 @@ app.use(
   })
 );
 
-app.use(express.json({ limit: "1mb" })); // текстовые запросы
+app.use(express.json({ limit: "1mb" }));
 
 const server = http.createServer(app);
 
@@ -55,20 +56,17 @@ const io = new Server(server, {
     origin: FRONTEND_ORIGIN === "*" ? true : FRONTEND_ORIGIN,
     credentials: true,
   },
-  // Чтобы WebSocket держался стабильнее за Nginx
   pingInterval: 25_000,
   pingTimeout: 20_000,
 });
 
 // ============================
 // Память: история комнат + индекс голосовых
-// (голосовые сами лежат на диске, в памяти только метаданные)
 // ============================
 const roomsHistory = new Map(); // roomId -> [messages]
 const audioIndex = new Map(); // audioId -> { filePath, mime, createdAt, size }
 
 function makeId() {
-  // достаточно для этого проекта, плюс timestamp
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
@@ -82,7 +80,6 @@ function extByMime(mime = "") {
 }
 
 function safeBufferFromAudio(audio) {
-  // audio может прилететь как ArrayBuffer, Uint8Array или Buffer (в зависимости от клиента)
   if (!audio) return null;
   try {
     return Buffer.from(audio);
@@ -108,52 +105,97 @@ async function cleanupAudio() {
       try {
         await fs.promises.unlink(item.filePath);
       } catch {
-        // файл мог быть уже удалён — это не критично
+        // не критично
       }
     }
   }
 }
-// Каждую минуту чистим старые голосовые
+
+// каждые 60 секунд чистим старые голосовые
 setInterval(() => {
   cleanupAudio().catch(() => {});
 }, 60_000);
 
 // ============================
 // HTTP: отдать голосовое по ссылке /audio/:id
+// + Range Requests (перемотка как в Telegram)
 // ============================
-app.get("/audio/:id", async (req, res) => {
-  const id = String(req.params.id || "");
-  if (!id) return res.status(400).send("Bad id");
+function guessMimeByExt(filePath) {
+  const ext = path.extname(filePath).slice(1).toLowerCase();
+  if (ext === "ogg") return "audio/ogg";
+  if (ext === "webm") return "audio/webm";
+  if (ext === "mp3") return "audio/mpeg";
+  if (ext === "wav") return "audio/wav";
+  return "application/octet-stream";
+}
 
+async function resolveAudioPathById(id) {
   const item = audioIndex.get(id);
-
-  if (!item) {
-    // на всякий случай попробуем найти файл на диске (если индекс сбросился после перезапуска)
-    const candidates = ["webm", "ogg", "mp3", "wav", "bin"].map((ext) =>
-      path.join(AUDIO_DIR, `${id}.${ext}`)
-    );
-    const found = candidates.find((p) => fs.existsSync(p));
-    if (!found) return res.status(404).send("Not found");
-
-    // mime грубо по расширению
-    const ext = path.extname(found).slice(1);
-    const mime =
-      ext === "ogg"
-        ? "audio/ogg"
-        : ext === "webm"
-        ? "audio/webm"
-        : ext === "mp3"
-        ? "audio/mpeg"
-        : ext === "wav"
-        ? "audio/wav"
-        : "application/octet-stream";
-
-    res.setHeader("Content-Type", mime);
-    return fs.createReadStream(found).pipe(res);
+  if (item?.filePath && fs.existsSync(item.filePath)) {
+    return { filePath: item.filePath, mime: item.mime || guessMimeByExt(item.filePath) };
   }
 
-  res.setHeader("Content-Type", item.mime || "audio/webm");
-  fs.createReadStream(item.filePath).pipe(res);
+  // если индекс пустой после рестарта — попробуем найти на диске
+  const candidates = ["webm", "ogg", "mp3", "wav", "bin"].map((ext) =>
+    path.join(AUDIO_DIR, `${id}.${ext}`)
+  );
+  const found = candidates.find((p) => fs.existsSync(p));
+  if (!found) return null;
+
+  return { filePath: found, mime: guessMimeByExt(found) };
+}
+
+app.get("/audio/:id", async (req, res) => {
+  const id = String(req.params.id || "").trim();
+  if (!id) return res.status(400).send("Bad id");
+
+  const resolved = await resolveAudioPathById(id);
+  if (!resolved) return res.status(404).send("Not found");
+
+  const { filePath, mime } = resolved;
+
+  let stat;
+  try {
+    stat = await fs.promises.stat(filePath);
+  } catch {
+    return res.status(404).send("Not found");
+  }
+
+  const fileSize = stat.size;
+  const range = req.headers.range;
+
+  res.setHeader("Content-Type", mime);
+  res.setHeader("Accept-Ranges", "bytes");
+
+  // Без range — отдаём целиком
+  if (!range) {
+    res.setHeader("Content-Length", fileSize);
+    return fs.createReadStream(filePath).pipe(res);
+  }
+
+  // Range: bytes=start-end
+  const match = /^bytes=(\d+)-(\d*)$/.exec(String(range));
+  if (!match) {
+    // Некорректный range
+    res.setHeader("Content-Range", `bytes */${fileSize}`);
+    return res.status(416).send("Bad range");
+  }
+
+  const start = Number(match[1]);
+  const end = match[2] ? Number(match[2]) : fileSize - 1;
+
+  if (Number.isNaN(start) || Number.isNaN(end) || start >= fileSize || end >= fileSize) {
+    res.setHeader("Content-Range", `bytes */${fileSize}`);
+    return res.status(416).send("Range not satisfiable");
+  }
+
+  const chunkSize = end - start + 1;
+
+  res.status(206);
+  res.setHeader("Content-Range", `bytes ${start}-${end}/${fileSize}`);
+  res.setHeader("Content-Length", chunkSize);
+
+  return fs.createReadStream(filePath, { start, end }).pipe(res);
 });
 
 // Главная просто как "жив ли сервер"
@@ -176,7 +218,6 @@ function emitPresence(roomId) {
 // Socket.IO
 // ============================
 io.on("connection", (socket) => {
-  // join
   socket.on("join_room", (data = {}) => {
     const roomId = String(data.roomId || "").trim();
     const senderId = String(data.senderId || "").trim();
@@ -191,14 +232,12 @@ io.on("connection", (socket) => {
 
     socket.emit("system", { text: `Вы подключились к комнате ${roomId}` });
 
-    // история
     const history = roomsHistory.get(roomId) || [];
     socket.emit("history", { roomId, messages: history });
 
     emitPresence(roomId);
   });
 
-  // text message
   socket.on("send_message", (data = {}) => {
     const roomId = String(data.roomId || "").trim();
     const text = String(data.text || "").trim();
@@ -208,6 +247,7 @@ io.on("connection", (socket) => {
     if (!roomId || !senderId || !text) return;
 
     const payload = {
+      roomId,
       type: "text",
       text,
       senderId,
@@ -219,7 +259,6 @@ io.on("connection", (socket) => {
     io.to(roomId).emit("new_message", payload);
   });
 
-  // voice message
   socket.on("send_voice", async (data = {}) => {
     const roomId = String(data.roomId || "").trim();
     const senderId = String(data.senderId || "").trim();
@@ -244,7 +283,7 @@ io.on("connection", (socket) => {
 
     try {
       await fs.promises.writeFile(filePath, buf);
-    } catch (e) {
+    } catch {
       socket.emit("system", { text: "❌ Ошибка сохранения голосового" });
       return;
     }
@@ -257,6 +296,7 @@ io.on("connection", (socket) => {
     });
 
     const payload = {
+      roomId,
       type: "audio",
       audioId,
       mime,
@@ -269,7 +309,6 @@ io.on("connection", (socket) => {
     io.to(roomId).emit("new_message", payload);
   });
 
-  // typing
   socket.on("typing_start", (data = {}) => {
     const roomId = String(data.roomId || "").trim();
     if (!roomId) return;
@@ -293,7 +332,6 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
-    // удалить из roomUsers
     for (const [roomId, usersMap] of roomUsers.entries()) {
       if (usersMap.has(socket.id)) {
         usersMap.delete(socket.id);
@@ -305,7 +343,7 @@ io.on("connection", (socket) => {
 });
 
 // ============================
-// Надёжность: лог ошибок + не валимся молча
+// Надёжность: лог ошибок
 // ============================
 process.on("unhandledRejection", (reason) => {
   console.error("UnhandledRejection:", reason);

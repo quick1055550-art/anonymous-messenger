@@ -5,3 +5,9 @@ client/dist/
 .env
 .env.*
 *.log
+
+# local build cache
+client/.vite/
+# runtime uploads
+server/data/
+# runtime uploads (voice messages)
