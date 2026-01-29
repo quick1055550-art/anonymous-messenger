@@ -1,6 +1,6 @@
 import { io } from "socket.io-client";
 
-// ✅ ПУНКТ 18 (деплой на домен/VPS): подключаемся к тому же домену, где открыт сайт
+
 const socket = io();
 
 // анонимный id на вкладку
@@ -20,11 +20,11 @@ const nickStatus = document.getElementById("nickStatus");
 const typingLine = document.getElementById("typingLine");
 const onlineList = document.getElementById("onlineList");
 
-// ✅ уведомления: элементы
+// уведомления: элементы
 const soundBtn = document.getElementById("soundBtn");
 const notifyBtn = document.getElementById("notifyBtn");
 
-// ✅ голосовые
+// голосовые
 const recBtn = document.getElementById("recBtn");
 const stopBtn = document.getElementById("stopBtn");
 const recStatus = document.getElementById("recStatus");
@@ -32,7 +32,7 @@ const recStatus = document.getElementById("recStatus");
 let currentRoomId = "";
 
 // ============================
-// ✅ УВЕДОМЛЕНИЯ (toggle ON/OFF) + ✅ МИГАНИЕ
+//  УВЕДОМЛЕНИЯ (toggle ON/OFF) + ✅ МИГАНИЕ
 // ============================
 
 const BASE_TITLE = document.title;
@@ -235,9 +235,9 @@ function setRecUi(isRecording) {
   }, 250);
 }
 
-function addLine(text, meta = "") {
+function addLine(text, meta = "", variant = "other") {
   const div = document.createElement("div");
-  div.className = "msg";
+  div.className = `msg ${variant}`;
   div.innerHTML = `
     <div>${text}</div>
     ${meta ? `<div class="small">${meta}</div>` : ""}
@@ -316,7 +316,8 @@ joinBtn.onclick = () => {
 
   socket.emit("join_room", { roomId, senderId, nick: getNick() });
 
-  addLine(`✅ Вошли в комнату: ${roomId}`);
+  // ✅ system
+  addLine(`✅ Вошли в комнату: ${roomId}`, "", "system");
   setInvite(roomId);
 };
 
@@ -362,13 +363,7 @@ sendBtn.onclick = () => {
   msgInput.value = "";
 };
 
-// ============================
-// ✅ Улучшение качества голосовых (ПУНКТЫ 1–2–3)
-// 1) выбираем лучший mimeType (opus)
-// 2) задаём стабильный высокий битрейт
-// 3) добавляем аудио-настройки микрофона (echo/noise/gain)
-// + ✅ ПУНКТ 4: mediaRecorder.start(250) (чанки каждые 250мс, меньше багов и пустых blob)
-// ============================
+
 
 function pickBestAudioMimeType() {
   const candidates = [
@@ -479,7 +474,7 @@ stopBtn.onclick = () => {
 };
 
 // ===== socket events =====
-socket.on("system", (data) => addLine(`🛠 ${data.text}`));
+socket.on("system", (data) => addLine(`🛠 ${data.text}`, "", "system"));
 
 socket.on("presence", (data) => {
   if (data.roomId !== currentRoomId) return;
@@ -491,18 +486,19 @@ socket.on("history", (data) => {
   if (data.roomId !== currentRoomId) return;
 
   chatEl.innerHTML = "";
-  addLine(`📜 История комнаты: ${data.roomId}`);
+  addLine(`📜 История комнаты: ${data.roomId}`, "", "system");
 
   for (const msg of data.messages) {
     const isMe = msg.senderId === senderId;
     const who = isMe ? "Вы" : (msg.nick || msg.senderId.slice(0, 6));
     const meta = `${who} • ${new Date(msg.time).toLocaleTimeString()}`;
+    const variant = isMe ? "me" : "other";
 
     if (msg.type === "audio") {
       const url = `/audio/${msg.audioId}`;
-      addLine(`<audio controls src="${url}"></audio>`, meta);
+      addLine(`<audio controls src="${url}"></audio>`, meta, variant);
     } else {
-      addLine(msg.text, meta);
+      addLine(msg.text, meta, variant);
     }
   }
 });
@@ -511,6 +507,7 @@ socket.on("new_message", (msg) => {
   const isMe = msg.senderId === senderId;
   const who = isMe ? "Вы" : (msg.nick || msg.senderId.slice(0, 6));
   const meta = `${who} • ${new Date(msg.time).toLocaleTimeString()}`;
+  const variant = isMe ? "me" : "other";
 
   if (msg.senderId !== senderId && document.hidden) {
     unreadCount += 1;
@@ -524,11 +521,11 @@ socket.on("new_message", (msg) => {
 
   if (msg.type === "audio") {
     const url = `/audio/${msg.audioId}`;
-    addLine(`<audio controls src="${url}"></audio>`, meta);
+    addLine(`<audio controls src="${url}"></audio>`, meta, variant);
     return;
   }
 
-  addLine(msg.text, meta);
+  addLine(msg.text, meta, variant);
 });
 
 socket.on("typing", (data) => {

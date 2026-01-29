@@ -1,67 +1,206 @@
-body {
-  font-family: system-ui, -apple-system, Arial;
-  background: #f6f7fb;
-  margin: 0;
-  padding: 24px;
+:root{
+  --bg0:#07080b;
+  --bg1:#0e1016;
+  --card: rgba(255,255,255,.06);
+  --card2: rgba(255,255,255,.10);
+  --stroke: rgba(255,255,255,.14);
+  --text: rgba(255,255,255,.92);
+  --muted: rgba(255,255,255,.65);
+  --shadow: 0 18px 60px rgba(0,0,0,.55);
+  --radius: 18px;
 }
 
-.app {
-  max-width: 720px;
+* { box-sizing: border-box; }
+
+body{
+  margin:0;
+  min-height:100vh;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+  color: var(--text);
+  background: radial-gradient(1200px 800px at 15% 10%, #1a1d24 0%, transparent 60%),
+              radial-gradient(900px 700px at 85% 20%, #101217 0%, transparent 55%),
+              radial-gradient(900px 900px at 50% 90%, #0b0c10 0%, transparent 60%),
+              linear-gradient(180deg, var(--bg0), var(--bg1));
+  overflow-x:hidden;
+  padding: 28px 18px 40px;
+}
+
+/* Перелив/шимер поверх */
+body::before{
+  content:"";
+  position:fixed;
+  inset:-40%;
+  background:
+    radial-gradient(closest-side, rgba(255,255,255,.10), transparent 70%) 10% 20%/45% 45% no-repeat,
+    radial-gradient(closest-side, rgba(255,255,255,.08), transparent 70%) 90% 30%/55% 55% no-repeat,
+    radial-gradient(closest-side, rgba(255,255,255,.06), transparent 70%) 40% 90%/60% 60% no-repeat;
+  filter: blur(20px);
+  opacity:.9;
+  animation: floatGlow 10s ease-in-out infinite alternate;
+  pointer-events:none;
+  z-index:-2;
+}
+
+body::after{
+  content:"";
+  position:fixed;
+  inset:0;
+  background:
+    repeating-linear-gradient(135deg, rgba(255,255,255,.06) 0 1px, transparent 1px 10px);
+  opacity:.05;
+  pointer-events:none;
+  z-index:-1;
+}
+
+@keyframes floatGlow{
+  0%   { transform: translate(-2%, -1%) scale(1.02); }
+  100% { transform: translate(2%, 1%) scale(1.06); }
+}
+
+@media (prefers-reduced-motion: reduce){
+  body::before{ animation:none; }
+}
+
+/* Контейнер */
+.app{
+  max-width: 880px;
   margin: 0 auto;
 }
 
-.card {
-  background: white;
-  padding: 16px;
-  border-radius: 12px;
+/* Заголовок */
+h1{
+  margin: 0 0 14px;
+  font-weight: 750;
+  letter-spacing: .3px;
+  font-size: clamp(26px, 3vw, 34px);
+  text-shadow: 0 10px 40px rgba(0,0,0,.6);
+}
+
+/* Карточки */
+.card{
   margin-top: 16px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
+  padding: 16px;
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, var(--card), rgba(255,255,255,.04));
+  border: 1px solid var(--stroke);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(12px);
 }
 
-.label {
-  margin-bottom: 8px;
-  opacity: 0.7;
+.label{
+  opacity: .8;
+  margin-bottom: 10px;
+  font-weight: 600;
+  letter-spacing: .2px;
 }
 
-.row {
-  display: flex;
-  gap: 8px;
-  margin-top: 12px;
-}
-
-input {
-  width: 100%;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid #ddd;
-  outline: none;
-}
-
-button {
-  padding: 10px 14px;
-  border-radius: 10px;
-  border: 0;
-  cursor: pointer;
-}
-
-.chat {
-  height: 300px;
-  overflow: auto;
-  border: 1px solid #eee;
-  border-radius: 10px;
-  padding: 10px;
-  background: #fafafa;
-}
-
-.msg {
-  padding: 8px 10px;
-  background: white;
-  border-radius: 10px;
-  margin: 6px 0;
-  border: 1px solid #eee;
-}
-
-.small {
+.small{
   font-size: 12px;
-  opacity: 0.6;
+  opacity: .72;
+  margin-top: 10px;
+  line-height: 1.35;
+}
+
+/* Ряды */
+.row{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+/* Инпуты */
+input{
+  flex:1;
+  min-width: 180px;
+  padding: 12px 12px;
+  border-radius: 14px;
+  background: rgba(0,0,0,.35);
+  border: 1px solid rgba(255,255,255,.14);
+  color: var(--text);
+  outline:none;
+  transition: .2s ease;
+}
+
+input::placeholder{ color: rgba(255,255,255,.45); }
+
+input:focus{
+  border-color: rgba(255,255,255,.28);
+  box-shadow: 0 0 0 4px rgba(255,255,255,.08);
+}
+
+/* Кнопки */
+button{
+  padding: 12px 14px;
+  border-radius: 14px;
+  color: var(--text);
+  background: rgba(255,255,255,.08);
+  border: 1px solid rgba(255,255,255,.16);
+  cursor:pointer;
+  transition: transform .12s ease, background .2s ease, border-color .2s ease, box-shadow .2s ease;
+  user-select:none;
+}
+
+button:hover{
+  background: rgba(255,255,255,.12);
+  border-color: rgba(255,255,255,.28);
+  box-shadow: 0 12px 30px rgba(0,0,0,.35);
+}
+
+button:active{ transform: translateY(1px) scale(.99); }
+
+button:disabled{
+  opacity:.45;
+  cursor:not-allowed;
+}
+
+/* Чат */
+.chat{
+  margin-top: 12px;
+  height: 360px;
+  overflow:auto;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(0,0,0,.28);
+  border: 1px solid rgba(255,255,255,.12);
+  display:flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Сообщение */
+.msg{
+  max-width: 80%;
+  padding: 10px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.06));
+  box-shadow: 0 10px 30px rgba(0,0,0,.25);
+}
+
+.msg .small{ margin-top: 6px; opacity:.65; }
+
+/* Мои сообщения — справа */
+.msg.me{
+  margin-left: auto;
+  background: linear-gradient(180deg, rgba(255,255,255,.14), rgba(255,255,255,.08));
+  border-color: rgba(255,255,255,.16);
+}
+
+/* Системные сообщения */
+.msg.system{
+  max-width: 100%;
+  text-align:center;
+  margin: 2px 0;
+  padding: 8px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.06);
+  border-color: rgba(255,255,255,.12);
+  opacity:.85;
+}
+
+audio{
+  width: 100%;
+  filter: grayscale(1) contrast(1.1);
 }
