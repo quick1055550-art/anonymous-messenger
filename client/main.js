@@ -50,6 +50,7 @@ const socketOpts = {
   reconnectionDelay: 500,
   reconnectionDelayMax: 3000,
   withCredentials: true,
+  autoConnect: false,
 };
 
 const socket = backendOrigin ? io(backendOrigin, socketOpts) : io(socketOpts);
@@ -58,9 +59,180 @@ const socket = backendOrigin ? io(backendOrigin, socketOpts) : io(socketOpts);
 // Если задан backendOrigin — используем абсолютный.
 const audioBase = backendOrigin || "";
 
-const SENDER_ID_KEY = "am_sender_id";
-const senderId = localStorage.getItem(SENDER_ID_KEY) || crypto.randomUUID();
-localStorage.setItem(SENDER_ID_KEY, senderId);
+// ============================
+// Auth bootstrap
+// ============================
+const appLayout = document.getElementById("appLayout");
+const authModal = document.getElementById("authModal");
+const authTabLogin = document.getElementById("authTabLogin");
+const authTabRegister = document.getElementById("authTabRegister");
+const authError = document.getElementById("authError");
+
+const authLoginForm = document.getElementById("authLoginForm");
+const authRegisterForm = document.getElementById("authRegisterForm");
+
+const authLoginNick = document.getElementById("authLoginNick");
+const authLoginPass = document.getElementById("authLoginPass");
+const authLoginBtn = document.getElementById("authLoginBtn");
+
+const authRegNick = document.getElementById("authRegNick");
+const authRegPass = document.getElementById("authRegPass");
+const authRegisterBtn = document.getElementById("authRegisterBtn");
+const authAvatarGrid = document.getElementById("authAvatarGrid");
+
+let selectedAvatarId = 0;
+
+function showAuthError(msg) {
+  if (!authError) return;
+  if (!msg) {
+    authError.style.display = "none";
+    authError.textContent = "";
+    return;
+  }
+  authError.style.display = "block";
+  authError.textContent = msg;
+}
+
+function setAuthMode(mode) {
+  const isLogin = mode === "login";
+  if (authTabLogin) authTabLogin.classList.toggle("btnPrimary", isLogin);
+  if (authTabRegister) authTabRegister.classList.toggle("btnPrimary", !isLogin);
+  if (authLoginForm) authLoginForm.style.display = isLogin ? "" : "none";
+  if (authRegisterForm) authRegisterForm.style.display = isLogin ? "none" : "";
+  showAuthError("");
+}
+
+function renderAuthAvatars() {
+  if (!authAvatarGrid) return;
+  authAvatarGrid.innerHTML = "";
+  for (let i = 0; i < AVATAR_COUNT; i++) {
+    const btn = document.createElement("button");
+    btn.className = "authAvatarBtn" + (i === selectedAvatarId ? " selected" : "");
+    btn.type = "button";
+    btn.title = `Аватар ${i + 1}`;
+    btn.onclick = () => {
+      selectedAvatarId = i;
+      renderAuthAvatars();
+    };
+    const img = document.createElement("img");
+    img.src = getAvatarUrl(i);
+    img.alt = "avatar";
+    btn.appendChild(img);
+    authAvatarGrid.appendChild(btn);
+  }
+}
+
+function showAuthPage() {
+  if (appLayout) appLayout.style.display = "none";
+  if (authModal) authModal.style.display = "flex";
+  setAuthMode("login");
+  renderAuthAvatars();
+  setTimeout(() => authLoginNick?.focus(), 0);
+}
+
+function hideAuthPage() {
+  if (authModal) authModal.style.display = "none";
+  if (appLayout) appLayout.style.display = "";
+}
+
+async function apiJson(url, body) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(body || {}),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data?.error || "error");
+  }
+  return data;
+}
+
+async function fetchMe() {
+  const res = await fetch("/api/auth/me", { credentials: "include" });
+  if (!res.ok) return null;
+  const data = await res.json().catch(() => null);
+  if (!data?.ok) return null;
+  return data.user || null;
+}
+
+async function afterAuth(user) {
+  currentUser = user;
+  senderId = String(user?.id || "");
+  hideAuthPage();
+
+  // обновим UI профиля (ищем элементы по id, чтобы не ловить TDZ)
+  try {
+    const nickInputEl = document.getElementById("nickInput");
+    const saveNickBtnEl = document.getElementById("saveNickBtn");
+    const randomNickBtnEl = document.getElementById("randomNickBtn");
+    const profileAvatarImgEl = document.getElementById("profileAvatarImg");
+
+    if (nickInputEl) {
+      nickInputEl.value = user.nick;
+      nickInputEl.setAttribute("disabled", "disabled");
+    }
+    if (saveNickBtnEl) saveNickBtnEl.style.display = "none";
+    if (randomNickBtnEl) randomNickBtnEl.style.display = "none";
+    if (profileAvatarImgEl) profileAvatarImgEl.src = getAvatarUrl(getMyAvatarId());
+  } catch {}
+
+  // подключаем сокет только после успешной авторизации
+  try { socket.connect(); } catch {}
+}
+
+async function bootstrapAuth() {
+  const me = await fetchMe();
+  if (me) {
+    await afterAuth(me);
+    return;
+  }
+  showAuthPage();
+}
+
+if (authTabLogin) authTabLogin.onclick = () => setAuthMode("login");
+if (authTabRegister) authTabRegister.onclick = () => setAuthMode("register");
+
+if (authLoginBtn) authLoginBtn.onclick = async () => {
+  try {
+    showAuthError("");
+    const nick = String(authLoginNick?.value || "").trim();
+    const password = String(authLoginPass?.value || "");
+    const data = await apiJson("/api/auth/login", { nick, password });
+    await afterAuth(data.user);
+  } catch (e) {
+    showAuthError(e?.message || "Ошибка входа");
+  }
+};
+
+if (authRegisterBtn) authRegisterBtn.onclick = async () => {
+  try {
+    showAuthError("");
+    const nick = String(authRegNick?.value || "").trim();
+    const password = String(authRegPass?.value || "");
+    const data = await apiJson("/api/auth/register", { nick, password, avatarId: selectedAvatarId });
+    await afterAuth(data.user);
+  } catch (e) {
+    showAuthError(e?.message || "Ошибка регистрации");
+  }
+};
+
+// запускаем проверку авторизации (не ждём загрузки сокета)
+bootstrapAuth().catch(() => showAuthPage());
+
+const logoutBtn = document.getElementById("logoutBtn");
+if (logoutBtn) logoutBtn.onclick = async () => {
+  try {
+    await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+  } catch {}
+  // перезагрузим страницу, чтобы всё очистилось
+  window.location.reload();
+};
+
+
+let currentUser = null;
+let senderId = "";
 
 // ============================
 // Avatar (10 минималистичных дефолтных)
@@ -81,19 +253,12 @@ function getAvatarUrl(id) {
 }
 
 function getMyAvatarId() {
-  const raw = localStorage.getItem(AVATAR_KEY);
-  const n = Number(raw);
-  if (Number.isFinite(n) && n >= 0 && n < AVATAR_COUNT) return n;
-  const rnd = Math.floor(Math.random() * AVATAR_COUNT);
-  localStorage.setItem(AVATAR_KEY, String(rnd));
-  return rnd;
+  return Number.isFinite(currentUser?.avatarId) ? currentUser.avatarId : 0;
 }
 
-function setMyAvatarId(id) {
-  const n = Number(id);
-  const safe = Number.isFinite(n) ? Math.max(0, Math.min(AVATAR_COUNT - 1, n)) : 0;
-  localStorage.setItem(AVATAR_KEY, String(safe));
-  return safe;
+function setMyAvatarId(_id) {
+  // аватар задаётся при регистрации, менять можно будет позже через отдельную фичу
+  return getMyAvatarId();
 }
 
 // Очередь отправки: если сокет временно отвалился — сохраняем события и отправляем после reconnect.
@@ -452,12 +617,11 @@ function makeRandomNick() {
 }
 
 function getNick() {
-  return localStorage.getItem("nick") || "";
+  return String(currentUser?.nick || "");
 }
 
-function setNick(nick) {
-  localStorage.setItem("nick", nick);
-  if (nickStatus) nickStatus.textContent = `Сохранено: ${nick}`;
+function setNick(_nick) {
+  // ник задаётся при регистрации
 }
 // ============================
 // Onboarding ("окно регистрации")
@@ -535,7 +699,7 @@ function initOnboarding() {
 
   // показать, если ника ещё нет
   if (!getNick()) {
-    openOnboarding();
+    // openOnboarding(); (disabled: now auth page)
   } else {
     // синхронизируем ник в инпуте слева
     if (nickInput) nickInput.value = getNick();
@@ -976,9 +1140,6 @@ async function sendVoiceBlob(blob, mime, durationSec) {
     "send_voice",
     {
       roomId: currentRoomId,
-      senderId,
-      nick: getNick(),
-      avatarId: getMyAvatarId(),
       mime: mime || "audio/webm",
       durationSec, // опционально (сервер может игнорировать)
       audio: arrayBuffer,
@@ -1380,7 +1541,7 @@ function joinRoom(roomId) {
   updateActiveHeader();
   renderChatLists();
 
-  const payload = { roomId: rid, senderId, nick: getNick(), avatarId: getMyAvatarId() };
+  const payload = { roomId: rid };
 
   if (socket.connected) {
     socket.emit("join_room", payload);
@@ -1419,20 +1580,20 @@ if (msgInput) {
 
     if (!text) {
       if (iAmTyping) {
-        socket.emit("typing_stop", { roomId: currentRoomId, senderId });
+        socket.emit("typing_stop", { roomId: currentRoomId });
         iAmTyping = false;
       }
       return;
     }
 
     if (!iAmTyping) {
-      socket.emit("typing_start", { roomId: currentRoomId, senderId, nick: getNick(), avatarId: getMyAvatarId() });
+      socket.emit("typing_start", { roomId: currentRoomId });
       iAmTyping = true;
     }
 
     if (typingTimer) clearTimeout(typingTimer);
     typingTimer = setTimeout(() => {
-      socket.emit("typing_stop", { roomId: currentRoomId, senderId });
+      socket.emit("typing_stop", { roomId: currentRoomId });
       iAmTyping = false;
     }, 700);
   });
@@ -1448,14 +1609,14 @@ if (sendBtn) {
     if (!currentRoomId) return alert("Сначала войдите в комнату");
 
     if (iAmTyping) {
-      socket.emit("typing_stop", { roomId: currentRoomId, senderId });
+      socket.emit("typing_stop", { roomId: currentRoomId });
       iAmTyping = false;
     }
     if (typingTimer) clearTimeout(typingTimer);
 
     emitOrQueue(
       "send_message",
-      { roomId: currentRoomId, text, senderId, nick: getNick(), avatarId: getMyAvatarId() },
+      { roomId: currentRoomId, text },
       "Сообщение не отправлено."
     );
 

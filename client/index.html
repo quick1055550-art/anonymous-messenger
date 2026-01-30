@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <div class="layout">
+    <div class="layout" id="appLayout">
       <!-- ============================
            Sidebar (Chats)
            ============================ -->
@@ -28,6 +28,7 @@
             <input id="nickInput" placeholder="например: Аноним42" />
             <button id="saveNickBtn" class="btnSmall">Сохранить</button>
             <button id="randomNickBtn" class="btnSmall">Случайный</button>
+            <button id="logoutBtn" class="btnSmall">Выйти</button>
           </div>
           <div class="small" id="nickStatus"></div>
         </div>
@@ -102,41 +103,50 @@
     </div>
 
 
-    <!-- Onboarding / "регистрация" (показывается, если ник ещё не сохранён) -->
-    <div id="onboardingModal" class="modal" style="display:none;">
-      <div class="modalCard">
-        <div class="modalTitle">Привет! Давай настроим профиль</div>
-
+    
+    <!-- Auth (Вход / Регистрация) -->
+    <div id="authModal" class="modal" style="display:none;">
+      <div class="modalCard authCard">
+        <div class="modalTitle">Anonymous Messenger</div>
         <div class="small" style="margin: 0 4px 10px; opacity:.9;">
-          Это анонимный чат. Выбери ник и аватар — их можно изменить позже в левой панели.
+          Анонимная регистрация: <b>ник + пароль + аватар</b>. Без e-mail.
         </div>
 
-        <div class="label" style="margin-top:10px;">Ник</div>
-        <div class="row">
-          <input id="onbNickInput" placeholder="например: Смешной Лиса 655" />
-          <button id="onbRandomNickBtn" class="btnSmall">Случайный</button>
+        <div class="authTabs">
+          <button id="authTabLogin" class="btnSmall btnPrimary">Вход</button>
+          <button id="authTabRegister" class="btnSmall">Регистрация</button>
         </div>
 
-        <div class="label" style="margin-top:12px;">Аватар</div>
-        <div id="onbAvatarGrid" class="avatarGrid"></div>
+        <div id="authError" class="authError" style="display:none;"></div>
 
-        <div class="row" style="justify-content:flex-end; margin-top: 12px;">
-          <button id="onbSaveBtn" class="btnSmall btnPrimary">Готово</button>
+        <!-- Login -->
+        <div id="authLoginForm">
+          <div class="label" style="margin-top:10px;">Ник</div>
+          <input id="authLoginNick" placeholder="например: Аноним42" />
+          <div class="label" style="margin-top:10px;">Пароль</div>
+          <input id="authLoginPass" type="password" placeholder="минимум 6 символов" />
+          <div class="row" style="margin-top:12px;">
+            <button id="authLoginBtn" class="btnPrimary" style="width:100%;">Войти</button>
+          </div>
+        </div>
+
+        <!-- Register -->
+        <div id="authRegisterForm" style="display:none;">
+          <div class="label" style="margin-top:10px;">Ник</div>
+          <input id="authRegNick" placeholder="например: Тихий Волк 123" />
+          <div class="label" style="margin-top:10px;">Пароль</div>
+          <input id="authRegPass" type="password" placeholder="минимум 6 символов" />
+
+          <div class="label" style="margin-top:12px;">Аватар</div>
+          <div id="authAvatarGrid" class="authAvatarGrid"></div>
+
+          <div class="row" style="margin-top:12px;">
+            <button id="authRegisterBtn" class="btnPrimary" style="width:100%;">Создать аккаунт</button>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- Avatar picker -->
-    <div id="avatarModal" class="modal" style="display:none;">
-      <div class="modalCard">
-        <div class="modalTitle">Выберите аватар</div>
-        <div id="avatarGrid" class="avatarGrid"></div>
-        <div class="row" style="justify-content:flex-end; margin-top: 10px;">
-          <button id="avatarCloseBtn" class="btnSmall">Закрыть</button>
-        </div>
-      </div>
-    </div>
 
-    <script src="./main.js" type="module"></script>
   </body>
 </html>

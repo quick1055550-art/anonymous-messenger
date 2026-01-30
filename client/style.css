@@ -546,3 +546,54 @@ audio{
   background: rgba(255,255,255,.06);
   display:block;
 }
+
+
+/* ============================
+   Auth modal
+   ============================ */
+.authCard {
+  max-width: 520px;
+}
+
+.authTabs {
+  display: flex;
+  gap: 8px;
+  margin: 10px 0 0;
+}
+
+.authError {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 80, 80, 0.12);
+  border: 1px solid rgba(255, 80, 80, 0.25);
+  font-size: 14px;
+}
+
+.authAvatarGrid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.authAvatarBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.06);
+  cursor: pointer;
+}
+
+.authAvatarBtn.selected {
+  outline: 2px solid rgba(120, 190, 255, 0.9);
+}
+
+.authAvatarBtn img {
+  width: 36px;
+  height: 36px;
+  display: block;
+}

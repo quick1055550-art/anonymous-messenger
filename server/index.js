@@ -9,6 +9,7 @@ const fs = require("fs");
 const cors = require("cors");
 const { Server } = require("socket.io");
 const { Pool } = require("pg");
+const crypto = require("crypto");
 
 // ============================
 // Настройки (можно переопределять через ENV)
@@ -42,6 +43,151 @@ const MAX_AUDIO_BYTES = Number(process.env.MAX_AUDIO_BYTES || 3_000_000);
 // Сколько сообщений храним в истории комнаты
 const MAX_HISTORY = Number(process.env.MAX_HISTORY || 200);
 
+// ============================
+// Auth (анонимная регистрация: ник + пароль + аватар)
+// - Пользователи в PostgreSQL
+// - Авторизация через httpOnly-cookie с подписанным токеном (без внешних зависимостей)
+// ============================
+const AUTH_COOKIE_NAME = process.env.AUTH_COOKIE_NAME || "am_auth";
+const AUTH_SECRET =
+  (process.env.AUTH_JWT_SECRET || process.env.JWT_SECRET || "").trim() ||
+  "CHANGE_ME__SET_AUTH_JWT_SECRET_IN_ENV";
+const AUTH_TOKEN_TTL_SEC = Number(process.env.AUTH_TOKEN_TTL_SEC || 30 * 24 * 60 * 60); // 30 дней
+
+function warnIfWeakAuthSecret() {
+  if (AUTH_SECRET.startsWith("CHANGE_ME")) {
+    console.warn("⚠️  AUTH_JWT_SECRET не задан. Укажи его в server/.env (иначе безопасность слабая).");
+  }
+}
+warnIfWeakAuthSecret();
+
+function parseCookies(header = "") {
+  const out = {};
+  const s = String(header || "");
+  s.split(";").forEach((part) => {
+    const p = part.trim();
+    if (!p) return;
+    const eq = p.indexOf("=");
+    if (eq === -1) return;
+    const k = p.slice(0, eq).trim();
+    const v = p.slice(eq + 1).trim();
+    out[k] = decodeURIComponent(v);
+  });
+  return out;
+}
+
+function base64urlEncode(bufOrStr) {
+  const b = Buffer.isBuffer(bufOrStr) ? bufOrStr : Buffer.from(String(bufOrStr));
+  return b.toString("base64").replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+}
+
+function base64urlDecodeToString(s) {
+  const str = String(s || "").replace(/-/g, "+").replace(/_/g, "/");
+  const pad = str.length % 4 === 0 ? "" : "=".repeat(4 - (str.length % 4));
+  return Buffer.from(str + pad, "base64").toString("utf8");
+}
+
+function hmacSha256(data) {
+  return crypto.createHmac("sha256", AUTH_SECRET).update(data).digest();
+}
+
+function signAuthToken(userId) {
+  const now = Math.floor(Date.now() / 1000);
+  const payload = { sub: userId, exp: now + AUTH_TOKEN_TTL_SEC };
+  const payloadB64 = base64urlEncode(JSON.stringify(payload));
+  const sigB64 = base64urlEncode(hmacSha256(payloadB64));
+  return `${payloadB64}.${sigB64}`;
+}
+
+function verifyAuthToken(token) {
+  const t = String(token || "");
+  const parts = t.split(".");
+  if (parts.length !== 2) return null;
+  const [payloadB64, sigB64] = parts;
+
+  const expected = base64urlEncode(hmacSha256(payloadB64));
+  const a = Buffer.from(sigB64);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return null;
+  if (!crypto.timingSafeEqual(a, b)) return null;
+
+  let payload;
+  try {
+    payload = JSON.parse(base64urlDecodeToString(payloadB64));
+  } catch {
+    return null;
+  }
+  const now = Math.floor(Date.now() / 1000);
+  if (!payload?.sub) return null;
+  if (Number(payload.exp || 0) <= now) return null;
+  return payload;
+}
+
+function setAuthCookie(req, res, token) {
+  const secure = Boolean(req.secure) || process.env.NODE_ENV === "production";
+  res.cookie(AUTH_COOKIE_NAME, token, {
+    httpOnly: true,
+    secure,
+    sameSite: "lax",
+    path: "/",
+    maxAge: AUTH_TOKEN_TTL_SEC * 1000,
+  });
+}
+
+function clearAuthCookie(req, res) {
+  const secure = Boolean(req.secure) || process.env.NODE_ENV === "production";
+  res.clearCookie(AUTH_COOKIE_NAME, {
+    httpOnly: true,
+    secure,
+    sameSite: "lax",
+    path: "/",
+  });
+}
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16);
+  const key = crypto.scryptSync(String(password), salt, 32);
+  return `scrypt$${salt.toString("base64")}$${key.toString("base64")}`;
+}
+
+function verifyPassword(password, stored) {
+  const s = String(stored || "");
+  const parts = s.split("$");
+  if (parts.length !== 3) return false;
+  if (parts[0] !== "scrypt") return false;
+  const salt = Buffer.from(parts[1], "base64");
+  const keyExpected = Buffer.from(parts[2], "base64");
+  const key = crypto.scryptSync(String(password), salt, keyExpected.length);
+  if (key.length !== keyExpected.length) return false;
+  return crypto.timingSafeEqual(key, keyExpected);
+}
+
+function validateNick(nickRaw) {
+  const nick = String(nickRaw || "").trim();
+  if (nick.length < 3 || nick.length > 20) {
+    return { ok: false, reason: "Ник должен быть от 3 до 20 символов." };
+  }
+  // латиница/кириллица/цифры/пробел/подчёркивание/дефис
+  if (!/^[\p{L}0-9 _-]+$/u.test(nick)) {
+    return { ok: false, reason: "Ник содержит недопустимые символы." };
+  }
+  return { ok: true, nick };
+}
+
+function validatePassword(passRaw) {
+  const pass = String(passRaw || "");
+  if (pass.length < 6) return { ok: false, reason: "Пароль минимум 6 символов." };
+  if (pass.length > 72) return { ok: false, reason: "Пароль слишком длинный." };
+  return { ok: true, pass };
+}
+
+function normalizeAvatarId(v, max = 10) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(max - 1, Math.trunc(n)));
+}
+
+
 fs.mkdirSync(AUDIO_DIR, { recursive: true });
 
 // ============================
@@ -61,6 +207,138 @@ app.use(
 
 app.use(express.json({ limit: "1mb" }));
 
+// ============================
+// Auth API
+// ============================
+async function dbGetUserById(userId) {
+  if (!isDbEnabled()) return null;
+  const pool = getDbPool();
+  const { rows } = await pool.query(
+    `SELECT id, nick, avatar_id, password_hash FROM users WHERE id = $1 LIMIT 1`,
+    [userId]
+  );
+  return rows[0] || null;
+}
+
+async function dbGetUserByNick(nick) {
+  if (!isDbEnabled()) return null;
+  const pool = getDbPool();
+  const nickLc = String(nick || "").trim().toLowerCase();
+  const { rows } = await pool.query(
+    `SELECT id, nick, avatar_id, password_hash FROM users WHERE nick_lc = $1 LIMIT 1`,
+    [nickLc]
+  );
+  return rows[0] || null;
+}
+
+function requireDb(req, res) {
+  if (!isDbEnabled()) {
+    res.status(500).json({ ok: false, error: "DATABASE_URL не задан. Auth требует PostgreSQL." });
+    return false;
+  }
+  return true;
+}
+
+async function authFromRequest(req) {
+  const cookies = parseCookies(req.headers.cookie || "");
+  const token = cookies[AUTH_COOKIE_NAME];
+  if (!token) return null;
+
+  const decoded = verifyAuthToken(token);
+  if (!decoded?.sub) return null;
+
+  const u = await dbGetUserById(decoded.sub);
+  if (!u) return null;
+
+  return { id: u.id, nick: u.nick, avatarId: u.avatar_id };
+}
+
+async function requireAuth(req, res, next) {
+  const u = await authFromRequest(req);
+  if (!u) return res.status(401).json({ ok: false, error: "unauthorized" });
+  req.user = u;
+  next();
+}
+
+app.post("/api/auth/register", async (req, res) => {
+  try {
+    if (!requireDb(req, res)) return;
+
+    const { nick, password, avatarId } = req.body || {};
+    const vNick = validateNick(nick);
+    if (!vNick.ok) return res.status(400).json({ ok: false, error: vNick.reason });
+
+    const vPass = validatePassword(password);
+    if (!vPass.ok) return res.status(400).json({ ok: false, error: vPass.reason });
+
+    const existing = await dbGetUserByNick(vNick.nick);
+    if (existing) return res.status(409).json({ ok: false, error: "Ник уже занят." });
+
+    const safeAvatarId = normalizeAvatarId(avatarId, 10);
+    const id = crypto.randomUUID();
+    const hash = hashPassword(vPass.pass);
+
+    const pool = getDbPool();
+    await pool.query(
+      `INSERT INTO users (id, nick, nick_lc, password_hash, avatar_id)
+       VALUES ($1,$2,$3,$4,$5)`,
+      [id, vNick.nick, vNick.nick.toLowerCase(), hash, safeAvatarId]
+    );
+
+    const token = signAuthToken(id);
+    setAuthCookie(req, res, token);
+
+    return res.json({ ok: true, user: { id, nick: vNick.nick, avatarId: safeAvatarId } });
+  } catch (err) {
+    console.error("❌ register error:", err);
+    return res.status(500).json({ ok: false, error: "server_error" });
+  }
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    if (!requireDb(req, res)) return;
+
+    const { nick, password } = req.body || {};
+    const vNick = validateNick(nick);
+    if (!vNick.ok) return res.status(400).json({ ok: false, error: vNick.reason });
+
+    const vPass = validatePassword(password);
+    if (!vPass.ok) return res.status(400).json({ ok: false, error: vPass.reason });
+
+    const u = await dbGetUserByNick(vNick.nick);
+    if (!u) return res.status(401).json({ ok: false, error: "Неверный ник или пароль." });
+
+    const ok = verifyPassword(vPass.pass, u.password_hash);
+    if (!ok) return res.status(401).json({ ok: false, error: "Неверный ник или пароль." });
+
+    const token = signAuthToken(u.id);
+    setAuthCookie(req, res, token);
+    return res.json({ ok: true, user: { id: u.id, nick: u.nick, avatarId: u.avatar_id } });
+  } catch (err) {
+    console.error("❌ login error:", err);
+    return res.status(500).json({ ok: false, error: "server_error" });
+  }
+});
+
+app.post("/api/auth/logout", async (req, res) => {
+  clearAuthCookie(req, res);
+  res.json({ ok: true });
+});
+
+app.get("/api/auth/me", async (req, res) => {
+  try {
+    if (!requireDb(req, res)) return;
+    const u = await authFromRequest(req);
+    if (!u) return res.status(401).json({ ok: false, error: "unauthorized" });
+    res.json({ ok: true, user: u });
+  } catch (err) {
+    console.error("❌ me error:", err);
+    res.status(500).json({ ok: false, error: "server_error" });
+  }
+});
+
+
 const server = http.createServer(app);
 
 const io = new Server(server, {
@@ -69,6 +347,30 @@ const io = new Server(server, {
   cors: { origin: corsOrigin, credentials: true },
   pingInterval: 25_000,
   pingTimeout: 20_000,
+  maxHttpBufferSize: Math.max(MAX_AUDIO_BYTES, 3_000_000) + 500_000,
+});
+
+
+// ============================
+// Socket.IO Auth (требует cookie am_auth)
+// ============================
+io.use(async (socket, next) => {
+  try {
+    if (!isDbEnabled()) return next(new Error("db_disabled"));
+    const cookies = parseCookies(socket.request.headers.cookie || "");
+    const token = cookies[AUTH_COOKIE_NAME];
+    if (!token) return next(new Error("unauthorized"));
+    const decoded = verifyAuthToken(token);
+    if (!decoded?.sub) return next(new Error("unauthorized"));
+
+    const u = await dbGetUserById(decoded.sub);
+    if (!u) return next(new Error("unauthorized"));
+
+    socket.user = { id: u.id, nick: u.nick, avatarId: u.avatar_id };
+    return next();
+  } catch {
+    return next(new Error("unauthorized"));
+  }
 });
 
 // ============================
@@ -117,6 +419,19 @@ async function initDb() {
   `);
 
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_messages_room_created ON messages(room_id, created_at);`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      nick TEXT NOT NULL,
+      nick_lc TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      avatar_id INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_users_created ON users(created_at);`);
 
   console.log("✅ SQL подключён: таблицы готовы");
 }
@@ -268,7 +583,7 @@ async function resolveAudioPathById(id) {
   return { filePath: found, mime: guessMimeByExt(found) };
 }
 
-app.get("/audio/:id", async (req, res) => {
+app.get("/audio/:id", requireAuth, async (req, res) => {
   const id = String(req.params.id || "").trim();
   if (!id) return res.status(400).send("Bad id");
 
@@ -343,33 +658,31 @@ function emitPresence(roomId) {
 io.on("connection", (socket) => {
   socket.on("join_room", async (data = {}) => {
     const roomId = String(data.roomId || "").trim();
-    const senderId = String(data.senderId || "").trim();
-    const nick = String(data.nick || "").trim();
-    const avatarId = Number(data.avatarId);
+    if (!roomId) return;
 
-    if (!roomId || !senderId) return;
+    const u = socket.user;
+    if (!u?.id) return;
 
     socket.join(roomId);
 
     if (!roomUsers.has(roomId)) roomUsers.set(roomId, new Map());
-    roomUsers.get(roomId).set(socket.id, { senderId, nick, avatarId: Number.isFinite(avatarId) ? avatarId : undefined });
+    roomUsers.get(roomId).set(socket.id, { senderId: u.id, nick: u.nick, avatarId: u.avatarId });
 
     socket.emit("system", { text: `Вы подключились к комнате ${roomId}` });
 
-    const history = await dbLoadHistory(roomId, 200);
-    socket.emit("history", { roomId, messages: history });
+    const history = await dbLoadHistory(roomId, MAX_HISTORY);
+    socket.emit("history", history);
 
-    emitPresence(roomId);
+    broadcastOnline(roomId);
   });
 
   socket.on("send_message", async (data = {}) => {
     const roomId = String(data.roomId || "").trim();
     const text = String(data.text || "").trim();
-    const senderId = String(data.senderId || "").trim();
-    const nick = String(data.nick || "").trim();
-    const avatarId = Number(data.avatarId);
+    if (!roomId || !text) return;
 
-    if (!roomId || !senderId || !text) return;
+    const u = socket.user;
+    if (!u?.id) return;
 
     const id = makeId();
 
@@ -378,13 +691,12 @@ io.on("connection", (socket) => {
       roomId,
       type: "text",
       text,
-      senderId,
-      nick,
-      avatarId: Number.isFinite(avatarId) ? avatarId : undefined,
+      senderId: u.id,
+      nick: u.nick,
+      avatarId: u.avatarId,
       time: new Date().toISOString(),
     };
 
-    // Сохраняем в SQL (если включено)
     await dbInsertMessage(payload);
 
     addToHistory(roomId, payload);
@@ -393,12 +705,11 @@ io.on("connection", (socket) => {
 
   socket.on("send_voice", async (data = {}) => {
     const roomId = String(data.roomId || "").trim();
-    const senderId = String(data.senderId || "").trim();
-    const nick = String(data.nick || "").trim();
-    const avatarId = Number(data.avatarId);
     const mime = String(data.mime || "audio/webm").trim();
+    if (!roomId) return;
 
-    if (!roomId || !senderId) return;
+    const u = socket.user;
+    if (!u?.id) return;
 
     const buf = safeBufferFromAudio(data.audio);
     if (!buf || buf.length === 0) return;
@@ -417,7 +728,7 @@ io.on("connection", (socket) => {
     try {
       await fs.promises.writeFile(filePath, buf);
     } catch {
-      socket.emit("system", { text: "❌ Ошибка сохранения голосового" });
+      socket.emit("system", { text: "❌ Ошибка сохранения голосового." });
       return;
     }
 
@@ -436,13 +747,12 @@ io.on("connection", (socket) => {
       type: "audio",
       audioId,
       mime,
-      senderId,
-      nick,
-      avatarId: Number.isFinite(avatarId) ? avatarId : undefined,
+      senderId: u.id,
+      nick: u.nick,
+      avatarId: u.avatarId,
       time: new Date().toISOString(),
     };
 
-    // Сохраняем в SQL (если включено)
     await dbInsertMessage(payload);
 
     addToHistory(roomId, payload);
@@ -452,22 +762,32 @@ io.on("connection", (socket) => {
   socket.on("typing_start", (data = {}) => {
     const roomId = String(data.roomId || "").trim();
     if (!roomId) return;
+
+    const u = socket.user;
+    if (!u?.id) return;
+
     socket.to(roomId).emit("typing", {
       roomId,
-      senderId: data.senderId,
-      nick: data.nick,
-      avatarId: data.avatarId,
+      senderId: u.id,
+      nick: u.nick,
+      avatarId: u.avatarId,
       isTyping: true,
     });
+  });
   });
 
   socket.on("typing_stop", (data = {}) => {
     const roomId = String(data.roomId || "").trim();
     if (!roomId) return;
+
+    const u = socket.user;
+    if (!u?.id) return;
+
     socket.to(roomId).emit("typing", {
       roomId,
-      senderId: data.senderId,
-      nick: data.nick,
+      senderId: u.id,
+      nick: u.nick,
+      avatarId: u.avatarId,
       isTyping: false,
     });
   });
@@ -481,7 +801,6 @@ io.on("connection", (socket) => {
       }
     }
   });
-});
 
 // ============================
 // Надёжность: лог ошибок
