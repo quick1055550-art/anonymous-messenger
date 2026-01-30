@@ -1,11 +1,14 @@
 "use strict";
 
+require("dotenv").config();
+
 const express = require("express");
 const http = require("http");
 const path = require("path");
 const fs = require("fs");
 const cors = require("cors");
 const { Server } = require("socket.io");
+const { Pool } = require("pg");
 
 // ============================
 // Настройки (можно переопределять через ENV)
@@ -67,6 +70,118 @@ const io = new Server(server, {
   pingInterval: 25_000,
   pingTimeout: 20_000,
 });
+
+// ============================
+// SQL (PostgreSQL) — хранение истории сообщений
+// ============================
+// Чтобы включить БД, задай переменную окружения DATABASE_URL,
+// например: postgres://user:password@127.0.0.1:5432/anonymous_messenger
+const DATABASE_URL = (process.env.DATABASE_URL || "").trim();
+let dbPool = null;
+
+function isDbEnabled() {
+  return Boolean(DATABASE_URL);
+}
+
+function getDbPool() {
+  if (!dbPool) {
+    dbPool = new Pool({
+      connectionString: DATABASE_URL,
+      // Для прод-сервисов часто нужен SSL. Для локального postgres на сервере — обычно нет.
+      ssl: process.env.PGSSLMODE === "require" ? { rejectUnauthorized: false } : undefined,
+    });
+  }
+  return dbPool;
+}
+
+async function initDb() {
+  if (!isDbEnabled()) {
+    console.log("ℹ️ DATABASE_URL не задан — работаем без SQL (история в памяти).");
+    return;
+  }
+
+  const pool = getDbPool();
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS messages (
+      id TEXT PRIMARY KEY,
+      room_id TEXT NOT NULL,
+      type TEXT NOT NULL, -- text | audio | system
+      text TEXT,
+      audio_id TEXT,
+      mime TEXT,
+      sender_id TEXT NOT NULL,
+      nick TEXT,
+      avatar_id INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_messages_room_created ON messages(room_id, created_at);`);
+
+  console.log("✅ SQL подключён: таблицы готовы");
+}
+
+async function dbInsertMessage(payload) {
+  if (!isDbEnabled()) return;
+
+  const pool = getDbPool();
+  const createdAt = payload.time ? new Date(payload.time) : new Date();
+
+  await pool.query(
+    `INSERT INTO messages
+      (id, room_id, type, text, audio_id, mime, sender_id, nick, avatar_id, created_at)
+     VALUES
+      ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+    [
+      payload.id || makeId(),
+      payload.roomId,
+      payload.type,
+      payload.text || null,
+      payload.audioId || null,
+      payload.mime || null,
+      payload.senderId,
+      payload.nick || null,
+      Number.isFinite(payload.avatarId) ? payload.avatarId : null,
+      createdAt,
+    ]
+  );
+}
+
+async function dbLoadHistory(roomId, limit = 200) {
+  if (!isDbEnabled()) return roomsHistory.get(roomId) || [];
+
+  const pool = getDbPool();
+  const { rows } = await pool.query(
+    `SELECT * FROM (
+        SELECT id, room_id, type, text, audio_id, mime, sender_id, nick, avatar_id, created_at
+        FROM messages
+        WHERE room_id = $1
+        ORDER BY created_at DESC
+        LIMIT $2
+      ) t
+      ORDER BY created_at ASC`,
+    [roomId, limit]
+  );
+
+  return rows.map((r) => ({
+    id: r.id,
+    roomId: r.room_id,
+    type: r.type,
+    text: r.text || undefined,
+    audioId: r.audio_id || undefined,
+    mime: r.mime || undefined,
+    senderId: r.sender_id,
+    nick: r.nick || "",
+    avatarId: Number.isFinite(r.avatar_id) ? r.avatar_id : undefined,
+    time: new Date(r.created_at).toISOString(),
+  }));
+}
+
+// Инициализация БД (без top-level await)
+initDb().catch((err) => {
+  console.error("❌ Ошибка инициализации SQL:", err);
+});
+
 
 // ============================
 // Память: история комнат + индекс голосовых
@@ -226,7 +341,7 @@ function emitPresence(roomId) {
 // Socket.IO
 // ============================
 io.on("connection", (socket) => {
-  socket.on("join_room", (data = {}) => {
+  socket.on("join_room", async (data = {}) => {
     const roomId = String(data.roomId || "").trim();
     const senderId = String(data.senderId || "").trim();
     const nick = String(data.nick || "").trim();
@@ -241,13 +356,13 @@ io.on("connection", (socket) => {
 
     socket.emit("system", { text: `Вы подключились к комнате ${roomId}` });
 
-    const history = roomsHistory.get(roomId) || [];
+    const history = await dbLoadHistory(roomId, 200);
     socket.emit("history", { roomId, messages: history });
 
     emitPresence(roomId);
   });
 
-  socket.on("send_message", (data = {}) => {
+  socket.on("send_message", async (data = {}) => {
     const roomId = String(data.roomId || "").trim();
     const text = String(data.text || "").trim();
     const senderId = String(data.senderId || "").trim();
@@ -256,7 +371,10 @@ io.on("connection", (socket) => {
 
     if (!roomId || !senderId || !text) return;
 
+    const id = makeId();
+
     const payload = {
+      id,
       roomId,
       type: "text",
       text,
@@ -265,6 +383,9 @@ io.on("connection", (socket) => {
       avatarId: Number.isFinite(avatarId) ? avatarId : undefined,
       time: new Date().toISOString(),
     };
+
+    // Сохраняем в SQL (если включено)
+    await dbInsertMessage(payload);
 
     addToHistory(roomId, payload);
     io.to(roomId).emit("new_message", payload);
@@ -307,7 +428,10 @@ io.on("connection", (socket) => {
       size: buf.length,
     });
 
+    const id = makeId();
+
     const payload = {
+      id,
       roomId,
       type: "audio",
       audioId,
@@ -317,6 +441,9 @@ io.on("connection", (socket) => {
       avatarId: Number.isFinite(avatarId) ? avatarId : undefined,
       time: new Date().toISOString(),
     };
+
+    // Сохраняем в SQL (если включено)
+    await dbInsertMessage(payload);
 
     addToHistory(roomId, payload);
     io.to(roomId).emit("new_message", payload);
